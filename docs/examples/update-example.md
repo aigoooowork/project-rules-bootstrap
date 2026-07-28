@@ -44,8 +44,9 @@ files, checking role state, and stopping at both write gates.
 > Proposed analysis path:
 > `<project-root>/.ai/rules.analysis.md`
 >
-> **Gate 1: the target tree is unchanged. May I update only the analysis
-> file?**
+> **Gate 1: the target tree is unchanged. The existing analysis is a regular
+> file at the exact reserved path, and its current SHA-256 is included as the
+> `replace-owned` precondition. May I update only that analysis file?**
 
 The agent stops. WorkBuddy is not described as automatically loading
 `RULES.md`, and no native WorkBuddy path is invented.
@@ -58,7 +59,8 @@ The agent stops. WorkBuddy is not described as automatically loading
 
 **Agent**
 
-> Completed: updated only `.ai/rules.analysis.md`.
+> Completed: verified the current SHA-256 and updated only
+> `.ai/rules.analysis.md`.
 >
 > The database conflict remains in the conflict section and is excluded from
 > canonical rules.
@@ -96,6 +98,15 @@ The agent stops. WorkBuddy is not described as automatically loading
 > | `CLAUDE.md` | `conflicting` | Existing routing disagrees with another source. | No write. |
 > | `.cursor/rules/backend.mdc` | `conflicting` | Existing database guidance is unresolved. | No write. |
 >
+> Operational write plan:
+>
+> | Path | Mode | Pre-update condition |
+> | --- | --- | --- |
+> | `.codebuddy/rules/project/RULE.mdc` | `create` | Path absent; no prior hash. |
+> | `.ai/rules-manifest.json` | `replace-owned` | Prior Manifest/output tree validated; exact current SHA-256 shown. |
+> | `.ai/rules/project.md` | `replace-owned` | Prior Manifest ownership and canonical body binding validated; exact current SHA-256 shown. |
+> | `RULES.md` | `managed-block` | Registry-authorized path, one ordered marker pair, exact current file SHA-256 shown. |
+>
 > **Gate 2: no planned canonical or adapter changes have been written. May I
 > write exactly this plan?**
 
@@ -120,6 +131,10 @@ approval to merge rules.
 > Manual-reference: import or `@` reference the root `RULES.md` in WorkBuddy.
 >
 > Unverified: areas not rechecked are listed in the analysis and Manifest.
+
+The `RULES.md` update preserves its BOM/newline convention and every byte
+outside the managed markers. Any prior-state, path, marker, symlink, or hash
+mismatch would stop the whole preflight before writing.
 
 If a later decision changes rule scope, action, exception, verification, or
 constraint strength, the semantic change requires confirmation again.

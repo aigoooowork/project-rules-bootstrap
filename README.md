@@ -32,7 +32,11 @@ There are two independent write gates:
 
 A request to “generate everything now” does not bypass either gate or confirm a
 new strong constraint. Existing files are preserved unless a clearly owned
-managed block can be merged safely.
+managed block can be merged safely. An update plan labels each write
+`create`, `replace-owned`, or `managed-block`. Existing analysis, Manifest,
+canonical, or adapter content is updated only after its exact path, validated
+ownership, and current SHA-256 precondition match. Managed-block updates keep
+the UTF-8 BOM, LF/CRLF convention, and all bytes outside the markers unchanged.
 
 See the complete stopping behavior in the
 [initialization example](docs/examples/init-example.md) and
@@ -115,6 +119,12 @@ assistants. A full plan can contain:
 Only applicable canonical domain files and selected adapters are generated.
 `.ai/rules/` is the sole canonical semantic source. Adapter files are concise
 routing entry points and do not duplicate or change canonical rules.
+Each canonical `rule-id` marker binds to its immediately following single
+list-item body; deterministic whitespace normalization must produce the exact
+Manifest `rule.text`. `MUST`, `NEVER`, `必须`, and `禁止` instructions are
+accepted only in the explicit confirmed-constraints section, with a unique
+one-rule confirmation record, matching scope, and linked confirmation
+evidence.
 `RULES.md` is the registry entry point for a selected WorkBuddy or Generic
 manual-reference adapter; it must be imported or explicitly referenced. If
 both are selected, the registry shared-output contract renders the file once,
@@ -162,6 +172,11 @@ total-content-byte, Git-record, Git-byte, and subprocess-time budgets. Each
 inventory row says whether content was scanned, skipped, truncated, or
 unverified. Sensitive paths remain existence-only. Language/toolchain signals
 are reported separately and never become backend conclusions by themselves.
+When `max_depth` omits an entry (including `max_depth=0`), the scanner sets
+`limits.depth_truncated`, returns `complete: false`, and records bounded
+`unverified` paths without reading their bodies. The path evidence itself is
+limited by the directory-entry and total-content-byte budgets; omitted evidence
+still increments the bounded reason counts in `unverified_summary`.
 
 If Python is unavailable, the Skill falls back to read-only file search and
 local Git inspection. It preserves this bounded evidence shape and exclusions,

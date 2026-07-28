@@ -19,16 +19,29 @@ confirmed constraints apply. Do not emit an empty optional section or a domain
 file with no reliable content.
 
 Every Manifest rule needs exactly one canonical marker:
-`<!-- rule-id: <stable-id> -->`. Every rule also needs a scoped, observable
-action and evidence record; conventions need confirmation. A confirmed
+`<!-- rule-id: <stable-id> -->`. The marker is followed by exactly one
+top-level list-item body; blank lines may separate them and indented
+continuations remain part of that one item. The validator trims and collapses
+Unicode whitespace in the body and Manifest `rule.text`, then compares them
+exactly without changing case or punctuation. It never includes a mismatched
+body in an error message. Every rule also needs a scoped, observable action
+and evidence record; conventions need confirmation. A confirmed
 constraint may appear in the applicable domain file, not only
 `restrictions.md`, but it must be inside that file's confirmed-constraints
 section. Its Manifest record must include scope, reason, exception policy,
 verification, a confirmation ID unique to that constraint, and linked
 `user-confirmation` evidence. The
-matching confirmation record must name the rule, use decision `confirmed`, and
-have the identical scope. Status `confirmed` without that record is not proof
-of confirmation.
+matching confirmation record must name only that rule, use decision
+`confirmed`, and have the identical scope. Status `confirmed` without that
+record is not proof of confirmation.
+
+The authoritative section vocabulary and mandatory-instruction detector live
+only in `scripts/rule_contract.py`. A semantic section may appear at most once,
+including when equivalent English and Chinese headings are mixed. English
+`MUST` and `NEVER` are case-insensitive; Chinese `必须` and `禁止` are the
+corresponding mandatory tokens. Any line containing one of these tokens is a
+strong instruction and is valid only as a marker-bound item in the explicit
+confirmed-constraints section.
 
 Do not present generic advice as fact, unconfirmed MUST/NEVER rules, large
 source blocks, secrets, cross-domain content, vague quality slogans,

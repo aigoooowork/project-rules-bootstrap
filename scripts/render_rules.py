@@ -4,24 +4,22 @@ import re
 from pathlib import Path
 from typing import Mapping
 
+from scripts.rule_contract import LANGUAGE_HEADINGS
 
+HEADING_FIELDS = {
+    "SCOPE_HEADING": "scope",
+    "FACTS_HEADING": "facts",
+    "CONSTRAINTS_HEADING": "constraints",
+    "RULES_HEADING": "rules",
+    "VERIFICATION_HEADING": "verification",
+    "RELATED_HEADING": "related",
+}
 HEADING_TRANSLATIONS = {
-    "en": {
-        "SCOPE_HEADING": "Scope",
-        "FACTS_HEADING": "Confirmed facts",
-        "CONSTRAINTS_HEADING": "Confirmed constraints",
-        "RULES_HEADING": "Execution rules",
-        "VERIFICATION_HEADING": "Verification",
-        "RELATED_HEADING": "Related rules",
-    },
-    "zh-CN": {
-        "SCOPE_HEADING": "适用范围",
-        "FACTS_HEADING": "已确认事实",
-        "CONSTRAINTS_HEADING": "已确认的强约束",
-        "RULES_HEADING": "执行规则",
-        "VERIFICATION_HEADING": "验证方式",
-        "RELATED_HEADING": "相关规则",
-    },
+    language: {
+        token: headings[semantic_key]
+        for token, semantic_key in HEADING_FIELDS.items()
+    }
+    for language, headings in LANGUAGE_HEADINGS.items()
 }
 DOMAIN_TITLES = {
     "en": {

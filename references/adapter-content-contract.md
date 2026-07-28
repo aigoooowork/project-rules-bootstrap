@@ -33,3 +33,13 @@ A shared static template body is identity-neutral and contains no
 removes template metadata and prepends the selected, validated owner's five
 declarations. This is rendering metadata, not a template marker; the shared
 body is never edited to name a particular tool.
+
+When an adapter path is a user-maintained file, update only the explicit bytes
+between exactly one
+`<!-- project-rules-bootstrap:start -->` /
+`<!-- project-rules-bootstrap:end -->` pair. The approved write plan includes
+the exact current file SHA-256. On an update run, the validated prior Manifest
+must authorize that adapter path. Preserve any UTF-8 BOM, the existing LF or
+CRLF convention, both markers, and every byte outside them. Reject missing,
+duplicate, nested, reversed, symlinked, unowned, or hash-mismatched targets;
+never fall back to whole-file replacement.

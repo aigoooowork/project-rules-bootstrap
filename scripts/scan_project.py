@@ -42,6 +42,11 @@ class _CollectionResult:
     entries_seen: int
     entries_truncated: bool
     files_truncated: bool
+    depth_truncated: bool
+    unverified: List[Dict[str, str]]
+    unverified_summary: Dict[str, int]
+    unverified_path_bytes: int
+    unverified_paths_truncated: bool
     unverified_directories: List[str]
 
 
@@ -189,29 +194,54 @@ def _collect_files(
     max_depth: int,
     max_entries: int,
     max_files: int,
+    max_unverified_path_bytes: int,
 ) -> _CollectionResult:
     files: List[Path] = []
     pending: List[Path] = [root]
     entries_seen = 0
     entries_truncated = False
     files_truncated = False
+    depth_truncated = False
+    unverified: List[Dict[str, str]] = []
+    unverified_summary: Dict[str, int] = {}
+    unverified_path_bytes = 0
+    unverified_paths_truncated = False
     unverified_directories: List[str] = []
+
+    def record_unverified(path: Path, reason: str, *, directory: bool = False) -> None:
+        nonlocal unverified_path_bytes, unverified_paths_truncated
+        relative = _relative_path(root, path) or "."
+        unverified_summary[reason] = unverified_summary.get(reason, 0) + 1
+        if directory:
+            unverified_directories.append(relative)
+        path_bytes = len(relative.encode("utf-8"))
+        if (
+            len(unverified) >= max_entries
+            or unverified_path_bytes + path_bytes > max_unverified_path_bytes
+        ):
+            unverified_paths_truncated = True
+            return
+        unverified.append({"path": relative, "reason": reason})
+        unverified_path_bytes += path_bytes
+
     while pending and not entries_truncated:
         directory = pending.pop()
         remaining = max_entries - entries_seen
         if remaining <= 0:
             entries_truncated = True
-            unverified_directories.append(_relative_path(root, directory) or ".")
+            unverified_paths_truncated = True
+            record_unverified(directory, "directory-entry-budget", directory=True)
             break
         try:
             entries, directory_truncated = _bounded_directory_entries(directory, remaining)
         except OSError:
-            unverified_directories.append(_relative_path(root, directory) or ".")
+            record_unverified(directory, "directory-unreadable", directory=True)
             continue
         entries_seen += len(entries)
         if directory_truncated:
             entries_truncated = True
-            unverified_directories.append(_relative_path(root, directory) or ".")
+            unverified_paths_truncated = True
+            record_unverified(directory, "directory-entry-budget", directory=True)
         directories: List[Path] = []
         for entry in entries:
             path = Path(entry.path)
@@ -220,6 +250,8 @@ def _collect_files(
             except ValueError:
                 continue
             if relative_depth > max_depth:
+                depth_truncated = True
+                record_unverified(path, "max-depth")
                 continue
             try:
                 if entry.is_symlink():
@@ -228,6 +260,7 @@ def _collect_files(
                             files.append(path)
                         else:
                             files_truncated = True
+                            record_unverified(path, "file-count-budget")
                 elif entry.is_dir(follow_symlinks=False):
                     if entry.name not in IGNORED_DIRS:
                         directories.append(path)
@@ -236,19 +269,28 @@ def _collect_files(
                         files.append(path)
                     else:
                         files_truncated = True
+                        record_unverified(path, "file-count-budget")
             except OSError:
+                record_unverified(path, "metadata-unreadable")
                 continue
         pending.extend(reversed(directories))
     if pending:
         entries_truncated = True
-        unverified_directories.extend(
-            _relative_path(root, directory) or "." for directory in pending
-        )
+        unverified_paths_truncated = True
+        for directory in pending:
+            record_unverified(directory, "directory-entry-budget", directory=True)
     return _CollectionResult(
         files=sorted(files, key=lambda path: _relative_path(root, path)),
         entries_seen=entries_seen,
         entries_truncated=entries_truncated,
         files_truncated=files_truncated,
+        depth_truncated=depth_truncated,
+        unverified=sorted(
+            unverified, key=lambda item: (item["path"], item["reason"])
+        ),
+        unverified_summary=dict(sorted(unverified_summary.items())),
+        unverified_path_bytes=unverified_path_bytes,
+        unverified_paths_truncated=unverified_paths_truncated,
         unverified_directories=sorted(set(unverified_directories)),
     )
 
@@ -406,7 +448,11 @@ def scan_project(
     per_file_budget = max(1, int(max_file_bytes))
     content_budget = max(0, int(max_content_bytes))
     collection = _collect_files(
-        resolved_root, depth, entry_budget, file_budget
+        resolved_root,
+        depth,
+        entry_budget,
+        file_budget,
+        content_budget,
     )
 
     inventory: List[Dict[str, object]] = []
@@ -434,9 +480,26 @@ def scan_project(
             }
         )
 
+    content_bytes_truncated = any(
+        item["content_status"] in {"truncated", "skipped"}
+        and item["content_reason"] in {"file-byte-budget", "content-byte-budget"}
+        for item in inventory
+    )
+    complete = not (
+        collection.entries_truncated
+        or collection.files_truncated
+        or collection.depth_truncated
+        or collection.unverified
+        or collection.unverified_paths_truncated
+        or content_bytes_truncated
+        or any(item["content_status"] == "unverified" for item in inventory)
+    )
     return {
         "root": str(resolved_root),
+        "complete": complete,
         "files": inventory,
+        "unverified": collection.unverified,
+        "unverified_summary": collection.unverified_summary,
         "stack_signals": detect_stack_signals(
             resolved_root, collection.files, scanned_contents
         ),
@@ -453,12 +516,11 @@ def scan_project(
             "directory_entries_seen": collection.entries_seen,
             "directory_entries_truncated": collection.entries_truncated,
             "files_truncated": collection.files_truncated,
+            "depth_truncated": collection.depth_truncated,
             "content_bytes_read": content_bytes_read,
-            "content_bytes_truncated": any(
-                item["content_status"] in {"truncated", "skipped"}
-                and item["content_reason"] in {"file-byte-budget", "content-byte-budget"}
-                for item in inventory
-            ),
+            "content_bytes_truncated": content_bytes_truncated,
+            "unverified_path_bytes": collection.unverified_path_bytes,
+            "unverified_paths_truncated": collection.unverified_paths_truncated,
             "unverified_directories": collection.unverified_directories,
         },
     }

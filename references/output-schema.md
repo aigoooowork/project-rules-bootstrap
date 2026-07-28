@@ -111,9 +111,14 @@ before validation.
 The validator additionally enforces invariants that JSON Schema cannot express
 directly: rule IDs, confirmation-record IDs, constraint `confirmation_id`
 values, and adapter owner IDs are unique; every Manifest rule has exactly one
-canonical `rule-id` marker; adapter metadata matches the authoritative
-registry; and every constraint in any canonical rule file has a confirmed
-record whose ID, rule membership, and scope match. A
+canonical `rule-id` marker bound to its immediately following single list-item
+body; the body matches Manifest `rule.text` after trimming and collapsing
+Unicode whitespace without changing case or punctuation; semantic canonical
+sections are not duplicated; and mandatory `MUST`, `NEVER`, `必须`, or `禁止`
+instructions occur only in the explicit confirmed-constraints section.
+Adapter metadata matches the authoritative registry. Every constraint in any
+canonical rule file has its own confirmed record whose ID, sole rule
+membership, and scope match. A
 constraint also requires linked `user-confirmation` evidence, reason, exception
 policy, and verification. A shared adapter output has one owner record and
 lists every selected consumer in `consumers`.
@@ -122,3 +127,22 @@ lists every selected consumer in `consumers`.
 account identifier, or Git identity. Evidence records may identify local paths
 and bounded commit identifiers, but never secret content. Stale rules must set
 `stale: true`.
+
+## Write-plan preconditions
+
+The two write gates use a separate operational plan enforced by
+`scripts/write_outputs.py`:
+
+| Mode | Target state | Required precondition |
+| --- | --- | --- |
+| `create` | Path is absent and not symlinked. | No prior hash is allowed. |
+| `replace-owned` | Existing regular file is proven to belong to the validated prior output tree. | Exact pre-update SHA-256; Gate 2 also validates the prior Manifest and canonical/adapter ownership. |
+| `managed-block` | Existing regular UTF-8 file contains exactly one ordered managed-marker pair. | Exact pre-update file SHA-256; on update, the prior Manifest must authorize the adapter path. |
+
+Gate 1 permits only `.ai/rules.analysis.md`; its exact reserved path plus the
+pre-update SHA-256 is the replacement ownership boundary. Gate 2 rejects an
+existing Manifest or canonical file unless the prior output tree validates
+before any write. Managed-block replacement operates on bytes, preserves an
+existing UTF-8 BOM and LF/CRLF convention, and leaves the prefix through the
+start marker and the suffix beginning at the end marker byte-for-byte
+unchanged.

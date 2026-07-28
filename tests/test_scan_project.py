@@ -25,6 +25,58 @@ def create_symlink_or_skip(link: Path, target: Path) -> None:
 
 
 class ScanProjectTests(unittest.TestCase):
+    def test_depth_limit_reports_omitted_file_without_reading_its_body(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "nested"
+            nested.mkdir()
+            (nested / "package.json").write_text(
+                '{"dependencies":{"vue":"DEPTH_SENTINEL"}}',
+                encoding="utf-8",
+            )
+
+            result = scan_project(root, max_depth=1)
+
+            self.assertTrue(result["limits"].get("depth_truncated", False))
+            self.assertFalse(result.get("complete", True))
+            self.assertIn("nested/package.json", json.dumps(result.get("unverified", [])))
+            self.assertNotIn("vue", result["stack_signals"]["frontend"])
+            self.assertNotIn("DEPTH_SENTINEL", json.dumps(result))
+
+    def test_zero_depth_reports_bounded_unverified_root_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index in range(4):
+                (root / ("long-entry-{:02}.txt".format(index))).write_text(
+                    "unread body",
+                    encoding="utf-8",
+                )
+
+            result = scan_project(
+                root,
+                max_depth=0,
+                max_entries=3,
+                max_content_bytes=40,
+            )
+
+            self.assertTrue(result["limits"].get("depth_truncated", False))
+            self.assertLessEqual(result["limits"].get("unverified_path_bytes", 41), 40)
+            self.assertLessEqual(len(result.get("unverified", [])), 3)
+            self.assertTrue(result["limits"].get("unverified_paths_truncated", False))
+
+    def test_zero_path_budget_still_reports_an_unverified_reason_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "omitted.txt").write_text("unread body", encoding="utf-8")
+
+            result = scan_project(root, max_depth=0, max_content_bytes=0)
+
+            self.assertEqual([], result.get("unverified", []))
+            self.assertGreaterEqual(
+                result.get("unverified_summary", {}).get("max-depth", 0),
+                1,
+            )
+
     def test_scan_stops_at_directory_entry_budget_and_reports_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

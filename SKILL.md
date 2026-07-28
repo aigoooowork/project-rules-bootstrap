@@ -59,6 +59,14 @@ Use its JSON as evidence, not as rule conclusions. Read relevant existing instru
 
 If Python is unavailable, use existing file-search and read-only local Git tools. Preserve the scanner's evidence shape: root; sorted file inventory with classification, `content_scanned`, content status, truncation, byte count, and reason; direct framework/toolchain signals; module manifests; scan-budget status; and bounded Git availability/status/commit records. Apply directory-entry, file-count, per-file-byte, total-content-byte, and subprocess-time budgets. Apply the scanner's exclusions for `.git`, dependencies, build outputs, caches, virtual environments, sensitive names, unreadable/binary files, and outside-root symlinks. Mark interrupted, truncated, skipped, or inaccessible areas explicitly. A language or toolchain signal alone does not establish a backend framework or architecture.
 
+Treat `complete: false` as a partial scan. In particular, inspect
+`limits.depth_truncated`, `unverified`, `unverified_summary`, and
+`limits.unverified_paths_truncated`; a depth-limited path is not evidence that
+the omitted file or framework is absent. Never read an omitted path body.
+Keep the unverified-path list within the same directory-entry and
+total-content-byte budgets as the scan; when that list cannot fit, retain the
+bounded reason counts in `unverified_summary`.
+
 ### 3. Classify before asking
 
 Read all three references before classifying any evidence:
@@ -185,7 +193,15 @@ If approval is absent or narrower than the plan, do not write outside the approv
 
 ### 8. Render only the approved files
 
-Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files with `scripts/render_rules.py` so every heading uses the Manifest's exact `en` or `zh-CN` language. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it. Every Manifest rule has one unique canonical `rule-id` marker. Every confirmed constraint, in any canonical domain file, has a unique rule ID, scope, reason, exception policy, verification, its own unique confirmation ID, user-confirmation evidence, and a matching confirmed record with the same scope.
+Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files with `scripts/render_rules.py` so every heading uses the Manifest's exact `en` or `zh-CN` language. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it. Every semantic section appears at most once. Every Manifest rule has one unique canonical `rule-id` marker immediately followed by its single list-item body. Normalize that body only by trimming and collapsing Unicode whitespace, then require an exact case- and punctuation-preserving match with Manifest `rule.text`. The authoritative headings, mandatory tokens, and normalization live in `scripts/rule_contract.py`.
+
+Every `MUST`, `NEVER`, `必须`, or `禁止` instruction belongs only in the
+explicit confirmed-constraints section. Every confirmed constraint, in any
+canonical domain file, has a unique rule ID, scope, reason, exception policy,
+verification, its own unique confirmation ID, user-confirmation evidence, and
+a matching confirmed record with the same scope and only that one rule ID.
+Reject a marker/body, Manifest, confirmation, scope, or evidence mismatch
+without echoing the rule body in an error.
 
 Keep `RULES.md` short: human/generic navigation only. Generate only selected adapters from the exact current entries in `references/adapters.json`:
 
@@ -204,13 +220,22 @@ Preserve existing rule files. Merge only inside clearly owned managed blocks. If
 
 When Python is available, apply Gate 1 and Gate 2 changes through
 `scripts/write_outputs.py`. Its analysis operation accepts only
-`.ai/rules.analysis.md`; its final operation preflights the exact approved path
-set, creates only absent files, and changes an existing file only inside one
-clearly owned managed-marker pair. A failed preflight writes nothing.
+`.ai/rules.analysis.md`; creating it uses `create`, while updating it uses
+`replace-owned` with the exact current SHA-256. Its final operation preflights
+the exact approved path set. Every planned write is explicitly `create`,
+`replace-owned`, or `managed-block`: `create` requires an absent path;
+`replace-owned` requires a structurally valid prior Manifest/output tree plus
+validated ownership and the exact current SHA-256; and `managed-block`
+requires the exact current file SHA-256 and exactly one ordered managed-marker
+pair. Existing Manifest and canonical files are never replaced without the
+validated prior state. Managed-block updates preserve the original UTF-8 BOM,
+newline convention, and every byte before the start marker and from the end
+marker onward. A missing, duplicate, nested, reversed, symlinked, unowned, or
+hash-mismatched target fails preflight and writes nothing.
 
 ### 9. Update-specific delta
 
-Prefer the stored Git scan baseline from the prior Manifest. Reclassify the local delta. Preserve an already-canonical, validly confirmed constraint without re-confirmation when its scope, action, reason, exception policy, verification, and strength are unchanged. First imports and semantic changes require explicit confirmation.
+Prefer the stored Git scan baseline from the prior Manifest. Reclassify the local delta. Before preserving a constraint without re-confirmation, validate the complete prior Manifest with the current schema and verify the prior rule ID, text, type, scope, status, confirmation ID, confirmed decision, one-rule reference, matching scope, and linked user-confirmation evidence. Then compare the current rule's normalized semantic fields. Caller-supplied booleans or self-reported `confirmed` status are not proof. Only a validated unchanged prior constraint is exempt; missing/forged records, first imports, and text, scope, or other semantic changes require explicit confirmation.
 
 Fall back to a bounded full scan when the baseline is missing, local Git is unavailable, or project structure/stack changed materially. Record the fallback reason and mark anything not rechecked as unverified.
 
@@ -255,6 +280,8 @@ Never claim a file was generated when no write occurred.
 | CodeBuddy and WorkBuddy receive equivalent native files | Use each registry entry's exact path, format, and support mode. |
 | A sensitive path is opened to "verify" it | Record existence and `content_scanned: false`; never read the body. |
 | A proposed file is reported as created | Separate planned, written, and validated states. |
+| A depth-limited scan is described as complete | Report `depth_truncated`, bounded `unverified` paths or `unverified_summary`, and `complete: false`. |
+| An existing output is put in a generic Modify list | Declare `replace-owned` or `managed-block` and show the current SHA-256 precondition. |
 
 ## Red flags: stop
 

@@ -27,7 +27,11 @@ Project Rules Bootstrap 是一个面向智能编码 Agent 的 Skill，用于根�
    只有用户明确同意后，才可按该计划写入正式文件。
 
 即使用户要求“立即全部生成”，也不能绕过任一关口，不能视为用户已经确认新的强
-约束。除非能确认某段内容属于可安全合并的托管区块，否则保留已有文件不变。
+约束。除非能确认某段内容属于可安全合并的托管区块，否则保留已有文件不变。更新
+计划必须把每次写入标为 `create`、`replace-owned` 或 `managed-block`；只有准确
+路径、经验证的所有权和当前 SHA-256 前置条件全部匹配，才能更新已有分析文件、
+Manifest、canonical 文件或 adapter。托管区块更新会保留 UTF-8 BOM、LF/CRLF
+换行方式以及 marker 外的全部字节。
 
 完整的停写示例见[初始化示例](docs/examples/init-example.md)和
 [更新示例](docs/examples/update-example.md)。
@@ -105,6 +109,10 @@ Skill 只询问仍缺失、且会影响输出的信息。所有生成的规则�
 
 只生成实际适用的 canonical 规则文件和用户选中的 adapter。`.ai/rules/` 是唯一的
 canonical 语义来源；adapter 只负责精简地指向相关规则，不复制或改变规则语义。
+每个 canonical `rule-id` marker 都与其紧随的单条列表正文绑定；仅折叠确定性的
+空白后，正文必须与 Manifest `rule.text` 精确一致。`MUST`、`NEVER`、`必须`、
+`禁止` 指令只能出现在明确的“已确认的强约束” section 中，并且必须有唯一的单规则
+确认记录、相同 scope 和关联确认 evidence。
 `RULES.md` 是所选 WorkBuddy 或 Generic `manual-reference` adapter 的登记入口，
 必须由用户导入或显式引用。如果两者同时选中，registry 的 shared-output 契约只
 渲染一次该文件，以 WorkBuddy 为具体 owner，并在一个 Manifest adapter 记录中
@@ -149,7 +157,10 @@ python scripts/validate_outputs.py <project-root>
 扫描器限制目录 entry 数、文件数、单文件字节数、内容总字节数、Git 记录与字节数，
 并对 subprocess 使用真实超时。每个 inventory 记录都会区分已读取、跳过、截断或
 未核验；敏感路径仍只记录存在性。语言或 toolchain 信号会单独报告，不能独自推导
-backend 结论。
+backend 结论。当 `max_depth` 省略 entry（包括 `max_depth=0`）时，扫描器会设置
+`limits.depth_truncated`、返回 `complete: false`，并在不读取被省略正文的前提下
+记录有界的 `unverified` 路径；路径证据本身也受目录 entry 和内容字节预算限制，
+无法容纳的证据仍会计入 `unverified_summary` 的有界原因计数。
 
 如果没有 Python，Skill 会改用只读文件搜索和本地 Git 检查，并保持与扫描器一致
 的有界证据结构和排除规则。被中断或无法访问的区域会标记为 `unverified`，且不会

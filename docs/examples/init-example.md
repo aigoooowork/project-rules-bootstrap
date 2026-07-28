@@ -85,6 +85,16 @@ gate.
 >
 > - None
 >
+> Operational write plan:
+>
+> | Path | Mode | Pre-update condition |
+> | --- | --- | --- |
+> | `.ai/rules-manifest.json` | `create` | Path absent; no prior hash. |
+> | `.ai/rules/project.md` | `create` | Path absent; no prior hash. |
+> | `.ai/rules/architecture.md` | `create` | Path absent; no prior hash. |
+> | `AGENTS.md` | `create` | Path absent; no prior hash. |
+> | `.cursor/rules/project.mdc` | `create` | Path absent; no prior hash. |
+>
 > Conflict/merge summary:
 >
 > - No existing rule files were discovered.
@@ -117,3 +127,5 @@ The agent stops a second time. Gate 1 approval does not imply Gate 2 approval.
 
 The generated rule files are in the selected language. Adapter filenames,
 registry paths, and compatibility-level identifiers remain unchanged.
+Every canonical marker is bound to its following body and reconciled with
+Manifest `rule.text`; no existing path is overwritten by a `create` write.

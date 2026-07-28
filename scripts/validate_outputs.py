@@ -24,29 +24,17 @@ from scripts.adapter_registry import (
     validate_adapter_registry_data,
     validate_relative_path,
 )
+from scripts.rule_contract import (
+    LANGUAGE_HEADINGS,
+    SECTION_KEY_BY_HEADING,
+    STRONG_CONSTRAINT_PATTERN,
+    normalize_rule_text,
+)
 
 
 MANIFEST_PATH = Path(".ai/rules-manifest.json")
 CANONICAL_RULES_PATH = Path(".ai/rules")
 BUNDLED_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "references" / "adapters.json"
-LANGUAGE_HEADINGS = {
-    "en": {
-        "scope": "Scope",
-        "facts": "Confirmed facts",
-        "constraints": "Confirmed constraints",
-        "rules": "Execution rules",
-        "verification": "Verification",
-        "related": "Related rules",
-    },
-    "zh-CN": {
-        "scope": "适用范围",
-        "facts": "已确认事实",
-        "constraints": "已确认的强约束",
-        "rules": "执行规则",
-        "verification": "验证方式",
-        "related": "相关规则",
-    },
-}
 DOMAIN_VALUES = frozenset(
     {
         "project",
@@ -85,6 +73,7 @@ ADAPTER_METADATA_PATTERN = re.compile(
 )
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 TOP_LEVEL_LIST_ITEM_PATTERN = re.compile(r"^[-*+]\s+\S")
+TOP_LEVEL_LIST_PREFIX_PATTERN = re.compile(r"^[-*+]\s+")
 RegistryInput = Optional[Union[Path, Dict[str, object]]]
 
 
@@ -93,6 +82,21 @@ class ValidationIssue:
     code: str
     path: str
     message: str
+
+
+@dataclass(frozen=True)
+class _CanonicalSection:
+    key: Optional[str]
+    heading: str
+    body: str
+
+
+@dataclass
+class _CanonicalRuleEntry:
+    rule_id: str
+    section_key: Optional[str]
+    section_heading: str
+    text_parts: List[str]
 
 
 def _require_object(
@@ -304,12 +308,8 @@ def _validate_manifest_adapter(value: object, index: int) -> Dict[str, object]:
     return record
 
 
-def load_manifest(path: Path) -> Dict[str, object]:
-    """Load a final Manifest and enforce its complete normative schema."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("Manifest is not valid JSON: {}".format(error)) from error
+def validate_manifest_data(data: object) -> Dict[str, object]:
+    """Enforce the complete normative Manifest schema on an in-memory value."""
     manifest = _require_object(
         data,
         label="Manifest",
@@ -390,6 +390,15 @@ def load_manifest(path: Path) -> Dict[str, object]:
     return manifest
 
 
+def load_manifest(path: Path) -> Dict[str, object]:
+    """Load a final Manifest and enforce its complete normative schema."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Manifest is not valid JSON: {}".format(error)) from error
+    return validate_manifest_data(data)
+
+
 def _rule_records(manifest: Mapping[str, object]) -> Dict[str, Dict[str, object]]:
     return {
         str(rule["id"]): rule
@@ -406,63 +415,120 @@ def _confirmation_records(manifest: Mapping[str, object]) -> Dict[str, Dict[str,
     }
 
 
-def _sections(content: str) -> Dict[str, str]:
+def _canonical_sections(content: str) -> List[_CanonicalSection]:
     matches = list(HEADING_PATTERN.finditer(content))
-    sections: Dict[str, str] = {}
+    sections: List[_CanonicalSection] = []
+    preamble_end = matches[0].start() if matches else len(content)
+    if content[:preamble_end].strip():
+        sections.append(_CanonicalSection(None, "<preamble>", content[:preamble_end]))
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
-        sections[match.group(1).strip()] = content[match.end():end]
+        heading = match.group(1).strip()
+        sections.append(
+            _CanonicalSection(
+                SECTION_KEY_BY_HEADING.get(heading),
+                heading,
+                content[match.end():end],
+            )
+        )
     return sections
 
 
-def _constraint_section_rule_ids(content: str) -> Tuple[List[str], int]:
-    sections = _sections(content)
-    bodies = [
-        body
-        for language in LANGUAGE_HEADINGS.values()
-        for heading, body in sections.items()
-        if heading == language["constraints"]
-    ]
-    marker_ids: List[str] = []
-    missing_markers = 0
-    for body in bodies:
+def _canonical_rule_entries(
+    sections: Iterable[_CanonicalSection],
+) -> Tuple[List[_CanonicalRuleEntry], List[Tuple[str, str]]]:
+    entries: List[_CanonicalRuleEntry] = []
+    problems: List[Tuple[str, str]] = []
+    for section in sections:
         pending_marker: Optional[str] = None
-        has_list_item = False
-        for raw_line in body.splitlines():
+        current_entry: Optional[_CanonicalRuleEntry] = None
+        for raw_line in section.body.splitlines():
             line = raw_line.strip()
             if not line:
                 continue
             marker = RULE_ID_PATTERN.fullmatch(line)
             if marker is not None:
                 if pending_marker is not None:
-                    missing_markers += 1
+                    problems.append(
+                        (section.heading, "a rule-id marker has no following list item")
+                    )
                 pending_marker = marker.group(1)
+                current_entry = None
                 continue
             if TOP_LEVEL_LIST_ITEM_PATTERN.match(raw_line):
-                if pending_marker is None:
-                    missing_markers += 1
+                if pending_marker is not None:
+                    current_entry = _CanonicalRuleEntry(
+                        pending_marker,
+                        section.key,
+                        section.heading,
+                        [
+                            TOP_LEVEL_LIST_PREFIX_PATTERN.sub(
+                                "", raw_line.strip(), count=1
+                            ).strip()
+                        ],
+                    )
+                    entries.append(current_entry)
+                elif section.key == "constraints":
+                    problems.append(
+                        (
+                            section.heading,
+                            "a confirmed-constraint list item lacks a preceding rule-id marker",
+                        )
+                    )
+                    current_entry = None
                 else:
-                    marker_ids.append(pending_marker)
+                    current_entry = None
                 pending_marker = None
-                has_list_item = True
                 continue
-            if raw_line[:1].isspace() and has_list_item and pending_marker is None:
+            if (
+                raw_line[:1].isspace()
+                and current_entry is not None
+                and pending_marker is None
+            ):
+                current_entry.text_parts.append(line)
                 continue
-            missing_markers += 1
+            if pending_marker is not None:
+                problems.append(
+                    (section.heading, "a rule-id marker has no following list item")
+                )
+            elif section.key == "constraints":
+                problems.append(
+                    (
+                        section.heading,
+                        "confirmed-constraint text is not a marker-bound list item",
+                    )
+                )
             pending_marker = None
+            current_entry = None
         if pending_marker is not None:
-            missing_markers += 1
-    return marker_ids, missing_markers
+            problems.append(
+                (section.heading, "a rule-id marker has no following list item")
+            )
+    return entries, problems
 
 
-def _canonical_scope_values(content: str) -> Set[str]:
-    sections = _sections(content)
+def _constraint_section_rule_ids(content: str) -> Tuple[List[str], int]:
+    entries, problems = _canonical_rule_entries(_canonical_sections(content))
+    return (
+        [entry.rule_id for entry in entries if entry.section_key == "constraints"],
+        len(
+            [
+                problem
+                for problem in problems
+                if problem[0] in {
+                    mapping["constraints"] for mapping in LANGUAGE_HEADINGS.values()
+                }
+            ]
+        ),
+    )
+
+
+def _canonical_scope_values(sections: Iterable[_CanonicalSection]) -> Set[str]:
     values: Set[str] = set()
-    for language in LANGUAGE_HEADINGS.values():
-        body = sections.get(language["scope"])
-        if body is None:
+    for section in sections:
+        if section.key != "scope":
             continue
-        for line in body.splitlines():
+        for line in section.body.splitlines():
             normalized = re.sub(r"^[-*+]\s+", "", line.strip()).strip("`").strip()
             if normalized:
                 values.add(normalized)
@@ -502,6 +568,16 @@ def _constraint_record_issues(
                 "constraint-confirmation-rule-mismatch",
                 path,
                 "Confirmation '{}' does not list constraint '{}'".format(
+                    confirmation_id, rule_id
+                ),
+            )
+        )
+    if confirmation.get("rule_ids") != [rule_id]:
+        issues.append(
+            ValidationIssue(
+                "constraint-confirmation-cardinality-mismatch",
+                path,
+                "Confirmation '{}' must reference only constraint '{}'".format(
                     confirmation_id, rule_id
                 ),
             )
@@ -552,7 +628,12 @@ def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[Validati
     language = str(manifest.get("project", {}).get("language", ""))
     expected = LANGUAGE_HEADINGS.get(language)
     issues: List[ValidationIssue] = []
-    headings = set(HEADING_PATTERN.findall(content))
+    sections = _canonical_sections(content)
+    headings = {
+        section.heading
+        for section in sections
+        if section.heading != "<preamble>"
+    }
     if expected is not None and expected["scope"] not in headings:
         issues.append(
             ValidationIssue(
@@ -598,19 +679,71 @@ def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[Validati
                 "Canonical rule file contains adapter-only frontmatter syntax",
             )
         )
-    constraint_ids, missing_markers = _constraint_section_rule_ids(content)
-    for _ in range(missing_markers):
+    semantic_sections: Dict[str, List[str]] = {}
+    for section in sections:
+        if section.key is not None:
+            semantic_sections.setdefault(section.key, []).append(section.heading)
+    for semantic_key, section_headings in semantic_sections.items():
+        if len(section_headings) <= 1:
+            continue
+        issues.append(
+            ValidationIssue(
+                "duplicate-canonical-section",
+                issue_path,
+                "Canonical section '{}' appears more than once ({})".format(
+                    semantic_key, ", ".join(section_headings)
+                ),
+            )
+        )
+    entries, marker_problems = _canonical_rule_entries(sections)
+    for section_heading, reason in marker_problems:
         issues.append(
             ValidationIssue(
                 "missing-constraint-marker",
                 issue_path,
-                "Every confirmed-constraint list item requires one preceding rule-id marker",
+                "Section '{}': {}".format(section_heading, reason),
             )
         )
+    for section in sections:
+        if (
+            section.key != "constraints"
+            and STRONG_CONSTRAINT_PATTERN.search(section.body)
+        ):
+            issues.append(
+                ValidationIssue(
+                    "constraint-outside-confirmed-section",
+                    issue_path,
+                    "Section '{}' contains a mandatory instruction outside the "
+                    "confirmed-constraints section".format(section.heading),
+                )
+            )
+    constraint_entries = [
+        entry for entry in entries if entry.section_key == "constraints"
+    ]
+    constraint_ids = [entry.rule_id for entry in constraint_entries]
     all_ids = RULE_ID_PATTERN.findall(content)
     constraint_id_set = set(constraint_ids)
     records = _rule_records(manifest)
-    scope_values = _canonical_scope_values(content)
+    scope_values = _canonical_scope_values(sections)
+    for entry in entries:
+        rule = records.get(entry.rule_id)
+        if rule is None:
+            continue
+        canonical_text = normalize_rule_text(" ".join(entry.text_parts))
+        manifest_text = normalize_rule_text(rule.get("text", ""))
+        if canonical_text != manifest_text:
+            issues.append(
+                ValidationIssue(
+                    "constraint-text-mismatch"
+                    if rule.get("type") == "constraint"
+                    else "rule-text-mismatch",
+                    issue_path,
+                    "Rule '{}' in section '{}' does not match Manifest rule.text "
+                    "after deterministic whitespace normalization".format(
+                        entry.rule_id, entry.section_heading
+                    ),
+                )
+            )
     for rule_id in all_ids:
         rule = records.get(rule_id)
         if rule is None:

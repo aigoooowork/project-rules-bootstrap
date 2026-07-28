@@ -147,6 +147,54 @@ def write_manifest(
     )
 
 
+def canonical_document(
+    *,
+    language: str,
+    scope: str,
+    facts: str = "- None.",
+    constraints: str = "- None.",
+    rules: str = "- None.",
+) -> str:
+    headings = {
+        "en": (
+            "Scope",
+            "Confirmed facts",
+            "Confirmed constraints",
+            "Execution rules",
+            "Verification",
+            "Related rules",
+        ),
+        "zh-CN": (
+            "适用范围",
+            "已确认事实",
+            "已确认的强约束",
+            "执行规则",
+            "验证方式",
+            "相关规则",
+        ),
+    }[language]
+    return (
+        "# Backend\n\n"
+        "## {}\n{}\n\n"
+        "## {}\n{}\n\n"
+        "## {}\n{}\n\n"
+        "## {}\n{}\n\n"
+        "## {}\n- Inspect the affected scope.\n\n"
+        "## {}\n- None.\n"
+    ).format(
+        headings[0],
+        scope,
+        headings[1],
+        facts,
+        headings[2],
+        constraints,
+        headings[3],
+        rules,
+        headings[4],
+        headings[5],
+    )
+
+
 def authoritative_adapter(root: Path, adapter: Dict[str, object]) -> Dict[str, object]:
     """Build a complete registry entry for tests unrelated to registry validation."""
     template = adapter.get("template", "assets/templates/adapters/test.md")
@@ -428,6 +476,133 @@ class ValidateOutputTreeTests(unittest.TestCase):
             issues = validate_output_tree(root)
 
             self.assertIn("rule-scope-mismatch", {issue.code for issue in issues})
+
+    def test_constraint_marker_body_must_match_manifest_text_without_leaking_it(self) -> None:
+        cases = {
+            "en": "- SENSITIVE_CANONICAL_SENTINEL MUST be disclosed.",
+            "zh-CN": "- SENSITIVE_CANONICAL_SENTINEL 必须被披露。",
+        }
+        for language, replacement in cases.items():
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_manifest(
+                    root,
+                    [confirmed_constraint()],
+                    confirmations=[confirmation()],
+                    language=language,
+                )
+                write_rule(
+                    root,
+                    ".ai/rules/backend.md",
+                    canonical_document(
+                        language=language,
+                        scope="src/api/**",
+                        constraints=(
+                            "<!-- rule-id: backend.repository-boundary -->\n"
+                            + replacement
+                        ),
+                    ),
+                )
+
+                issues = validate_output_tree(root)
+
+                self.assertIn("constraint-text-mismatch", {issue.code for issue in issues})
+                self.assertNotIn(
+                    "SENSITIVE_CANONICAL_SENTINEL",
+                    "\n".join(issue.message for issue in issues),
+                )
+
+    def test_strong_instruction_outside_confirmed_constraints_is_rejected(self) -> None:
+        cases = {
+            "en": ("- Operators MUST rotate credentials.", "Execution rules"),
+            "zh-CN": ("- 操作人员必须轮换凭据。", "执行规则"),
+        }
+        for language, (instruction, section_name) in cases.items():
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_manifest(root, [], language=language)
+                write_rule(
+                    root,
+                    ".ai/rules/security.md",
+                    canonical_document(
+                        language=language,
+                        scope="security/**",
+                        rules=instruction,
+                    ),
+                )
+
+                issues = validate_output_tree(root)
+
+                matching = [
+                    issue
+                    for issue in issues
+                    if issue.code == "constraint-outside-confirmed-section"
+                ]
+                self.assertTrue(matching)
+                self.assertTrue(any(section_name in issue.message for issue in matching))
+
+    def test_duplicate_constraint_sections_do_not_hide_an_unbound_instruction(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(root, [], language="en")
+            content = canonical_document(
+                language="en",
+                scope="src/api/**",
+                constraints="- Operators MUST preserve audit records.",
+            )
+            content += "\n## Confirmed constraints\n- None.\n"
+            write_rule(root, ".ai/rules/backend.md", content)
+
+            issues = validate_output_tree(root)
+            codes = {issue.code for issue in issues}
+
+            self.assertIn("duplicate-canonical-section", codes)
+            self.assertIn("missing-constraint-marker", codes)
+
+    def test_confirmation_record_must_bind_exactly_one_constraint(self) -> None:
+        constraint = confirmed_constraint()
+        fact = complete_rule(
+            {
+                "id": "backend.observed-layer",
+                "domain": "backend",
+                "type": "fact",
+                "scope": "src/api/**",
+                "text": "The API layer exists.",
+            }
+        )
+        record = confirmation()
+        record["rule_ids"] = [constraint["id"], fact["id"]]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(
+                root,
+                [constraint, fact],
+                confirmations=[record],
+                language="en",
+            )
+            write_rule(
+                root,
+                ".ai/rules/backend.md",
+                canonical_document(
+                    language="en",
+                    scope="src/api/**",
+                    facts=(
+                        "<!-- rule-id: backend.observed-layer -->\n"
+                        "- The API layer exists."
+                    ),
+                    constraints=(
+                        "<!-- rule-id: backend.repository-boundary -->\n"
+                        "- API handlers must not access the database directly."
+                    ),
+                ),
+            )
+
+            issues = validate_output_tree(root)
+
+            self.assertIn(
+                "constraint-confirmation-cardinality-mismatch",
+                {issue.code for issue in issues},
+            )
 
     def test_manifest_adapter_must_match_every_authoritative_registry_field(self) -> None:
         fields = {
