@@ -70,6 +70,15 @@ def load_manifest(path: Path) -> Dict[str, object]:
         raise ValueError("Manifest is not valid JSON: {}".format(error)) from error
     if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
         raise ValueError("Manifest must be an object with a rules array")
+    baseline = data.get("scan_baseline")
+    if not isinstance(baseline, dict):
+        raise ValueError("Final Manifest requires an initialized scan_baseline object")
+    if baseline.get("kind") not in {"git", "full-scan"}:
+        raise ValueError("Final Manifest scan_baseline requires kind git or full-scan")
+    if not isinstance(baseline.get("captured_at"), str) or not baseline["captured_at"].strip():
+        raise ValueError("Final Manifest scan_baseline requires captured_at")
+    if not isinstance(baseline.get("paths"), list):
+        raise ValueError("Final Manifest scan_baseline requires a paths array")
     for rule in data["rules"]:
         if not isinstance(rule, dict):
             raise ValueError("Every Manifest rule must be an object")
@@ -109,6 +118,8 @@ def _validate_adapter_registry(
             if not isinstance(adapter.get(key), str) or not adapter[key].strip():
                 raise ValueError("Every adapter registry entry requires a non-empty {}".format(key))
         support = adapter["support"]
+        if "support_level" in adapter:
+            raise ValueError("Adapter registry support_level alias is not allowed; use support only")
         if support not in ADAPTER_SUPPORT_LEVELS:
             raise ValueError("Every adapter registry entry requires a supported support value")
         if adapter["verified_at"] != REGISTRY_VERIFIED_AT:

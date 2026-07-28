@@ -27,7 +27,18 @@ def write_manifest(
 ) -> None:
     path = root / ".ai" / "rules-manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    manifest: Dict[str, object] = {"rules": rules}
+    manifest: Dict[str, object] = {
+        "version": "1.0",
+        "project": {"name": "test", "language": "en"},
+        "scan_baseline": {
+            "kind": "full-scan",
+            "captured_at": "2026-07-28T00:00:00Z",
+            "paths": [],
+            "fallback_reason": "test fixture",
+        },
+        "rules": rules,
+        "confirmations": [],
+    }
     if adapters is not None:
         manifest["adapters"] = adapters
     path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -80,6 +91,7 @@ class ValidateOutputTreeTests(unittest.TestCase):
             "missing-name": {"name": None},
             "unsupported-support": {"support": "automatic"},
             "support-alias": {"support": None, "support_level": "manual-reference"},
+            "duplicate-support-alias": {"support_level": "manual-reference"},
             "wrong-date": {"verified_at": "2026-07-27"},
             "non-https-source": {"sources": ["http://example.test/rules"]},
             "missing-template": {"template": "assets/templates/adapters/missing.md"},
@@ -121,10 +133,51 @@ class ValidateOutputTreeTests(unittest.TestCase):
             with self.subTest(adapter=adapter["id"]):
                 content = (REPOSITORY_ROOT / adapter["template"]).read_text(encoding="utf-8")
                 metadata = _adapter_metadata(content)
-                self.assertEqual(metadata.get("adapter-id"), adapter["id"])
+                if adapter["template"] != "assets/templates/adapters/rules.md":
+                    self.assertEqual(metadata.get("adapter-id"), adapter["id"])
+                else:
+                    self.assertIn(metadata.get("adapter-id"), {"workbuddy", "generic"})
                 self.assertEqual(metadata.get("adapter-support"), adapter["support"])
                 self.assertIn("adapter-scope:", content)
                 self.assertIn("adapter-loading:", content)
+
+    def test_registry_uses_exact_shared_rules_template_mappings(self) -> None:
+        registry = load_adapter_registry(REPOSITORY_ROOT / "references" / "adapters.json")
+        templates = {adapter["id"]: adapter["template"] for adapter in registry["adapters"]}
+
+        self.assertEqual(templates["workbuddy"], "assets/templates/adapters/rules.md")
+        self.assertEqual(templates["generic"], "assets/templates/adapters/rules.md")
+        self.assertFalse((REPOSITORY_ROOT / "assets/templates/adapters/generic-rules.md").exists())
+
+    def test_manifest_template_uses_schema_defined_pre_render_baseline_state(self) -> None:
+        template = json.loads(
+            (REPOSITORY_ROOT / "assets/templates/rules-manifest.json").read_text(encoding="utf-8")
+        )
+        schema_text = (REPOSITORY_ROOT / "references/output-schema.md").read_text(encoding="utf-8")
+
+        self.assertIsNone(template["scan_baseline"])
+        self.assertIn('"type": ["object", "null"]', schema_text)
+        self.assertEqual(template["rules"], [])
+
+    def test_final_manifest_rejects_uninitialized_scan_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = {
+                "version": "1.0",
+                "project": {"name": "test", "language": "en"},
+                "scan_baseline": None,
+                "rules": [],
+                "adapters": [],
+                "confirmations": [],
+            }
+            path = root / ".ai" / "rules-manifest.json"
+            path.parent.mkdir()
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            write_rule(root, ".ai/rules/project.md", "# Project\n\n## 适用范围 / Scope\n./\n")
+
+            issues = validate_output_tree(root)
+
+            self.assertIn("invalid-manifest", {issue.code for issue in issues})
 
     def test_rule_templates_use_bilingual_headings_and_renderer_removed_metadata(self) -> None:
         required_headings = (

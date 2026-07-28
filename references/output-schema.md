@@ -19,7 +19,7 @@ The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 20
       }
     },
     "scan_baseline": {
-      "type": "object", "additionalProperties": false,
+      "type": ["object", "null"], "description": "null is allowed only in this pre-render template and must be replaced before final output.", "additionalProperties": false,
       "required": ["kind", "captured_at", "paths"],
       "properties": {
         "kind": {"type": "string", "enum": ["git", "full-scan"]},

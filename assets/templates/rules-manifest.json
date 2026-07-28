@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "project": {"name": "{{PROJECT_NAME}}", "language": "selected-language"},
-  "scan_baseline": {},
+  "scan_baseline": null,
   "rules": [],
   "adapters": [],
   "confirmations": []
