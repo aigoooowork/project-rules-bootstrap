@@ -1,16 +1,96 @@
 # Output schema
 
-The generated Manifest is `.ai/rules-manifest.json`, encoded as UTF-8 JSON.
+The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 2020-12 JSON Schema is normative. `additionalProperties: false` means a property not listed below is forbidden; a field absent from `required` is optional. Timestamps are ISO-8601 strings. The renderer must replace the empty structural template with values satisfying this schema before writing it.
 
-| Field | Required | Shape and meaning |
-| --- | --- | --- |
-| `version` | yes | Schema version string. |
-| `project` | yes | Object with non-identifying project display name and selected output language. |
-| `scan_baseline` | yes | Object: `kind` (`git` or `full-scan`), `captured_at`, optional local `head`, bounded `paths`, and fallback reason when applicable. |
-| `rules` | yes | Array of rule records. |
-| `adapters` | yes | Array of selected adapter records matching the authoritative registry. |
-| `confirmations` | yes | Array of non-identifying confirmation records. |
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "project", "scan_baseline", "rules", "adapters", "confirmations"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "project": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "language"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "description": "Non-identifying display name only."},
+        "language": {"type": "string", "minLength": 1}
+      }
+    },
+    "scan_baseline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "captured_at", "paths"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["git", "full-scan"]},
+        "captured_at": {"type": "string", "format": "date-time"},
+        "paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "head": {"type": ["string", "null"]},
+        "fallback_reason": {"type": ["string", "null"]}
+      }
+    },
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}},
+    "adapters": {"type": "array", "items": {"$ref": "#/$defs/adapter"}},
+    "confirmations": {"type": "array", "items": {"$ref": "#/$defs/confirmation"}}
+  },
+  "$defs": {
+    "rule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "domain", "type", "status", "scope", "text", "confidence", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^(project|architecture|coding-style|frontend|backend|api|database|testing|security|restrictions)(\\.[a-z0-9][a-z0-9._-]*)+$"},
+        "domain": {"type": "string", "enum": ["project", "architecture", "coding-style", "frontend", "backend", "api", "database", "testing", "security", "restrictions"]},
+        "type": {"type": "string", "enum": ["fact", "convention", "constraint"]},
+        "status": {"type": "string", "enum": ["confirmed", "candidate", "unknown", "conflict", "stale"]},
+        "scope": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+        "confirmation_id": {"type": "string", "minLength": 1},
+        "stale": {"type": "boolean"},
+        "supersedes": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "location", "observation", "captured_at"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["source", "configuration", "documentation", "git", "user-confirmation"]},
+        "location": {"type": "string", "minLength": 1},
+        "observation": {"type": "string", "minLength": 1},
+        "captured_at": {"type": "string", "format": "date-time"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "commit": {"type": "string", "minLength": 1}
+      }
+    },
+    "confirmation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "recorded_at", "decision", "scope", "rule_ids"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "decision": {"type": "string", "enum": ["confirmed", "rejected", "deferred"]},
+        "scope": {"type": "string", "minLength": 1},
+        "rule_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "batch_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "adapter": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "path", "support", "template", "registry_version"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "support": {"type": "string", "enum": ["native-auto", "import-supported", "manual-reference", "unverified"]},
+        "template": {"type": "string", "minLength": 1},
+        "registry_version": {"type": "string", "minLength": 1},
+        "scope_loading": {"type": "string", "minLength": 1},
+        "import_capability": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
+```
 
-A rule record has `id`, `domain`, `type`, `status`, `scope`, `text`, `confidence`, `evidence`, and optional `confirmation_id`, `stale`, and `supersedes`. Rule IDs are lowercase dot-separated identifiers beginning with their domain (for example, `backend.repository-access`); each ID appears in one canonical domain file only. `domain` is one of `project`, `architecture`, `coding-style`, `frontend`, `backend`, `api`, `database`, `testing`, `security`, or `restrictions`. `type` is `fact`, `convention`, or `constraint`; `status` is `confirmed`, `candidate`, `unknown`, `conflict`, or `stale`; `confidence` is exactly `high`, `medium`, or `low`.
-
-Each evidence record has `kind`, `location`, `observation`, and `captured_at`; it may include a bounded line range or local commit identifier, but never secret content. A confirmation record has `id`, `recorded_at`, `decision`, `scope`, `rule_ids`, and optional `batch_reason`; it contains no name, email, user ID, or Git identity. An adapter record has `id`, `path`, `support`, `template`, and `registry_version`; optional scope/loading fields must preserve the registry meaning.
+`project.name` and all confirmation records must contain no name, email, account identifier, or Git identity. Evidence records may identify local paths and bounded commit identifiers, but never secret content. A confirmed constraint must have `type: "constraint"`, `status: "confirmed"`, and a matching confirmation record; stale rules must set `stale: true`.

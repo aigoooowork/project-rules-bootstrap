@@ -13,6 +13,10 @@ MANIFEST_PATH = Path(".ai/rules-manifest.json")
 CANONICAL_RULES_PATH = Path(".ai/rules")
 SCOPE_HEADING = "适用范围"
 CONFIRMED_CONSTRAINTS_HEADING = "已确认的强约束"
+CANONICAL_HEADING_TRANSLATIONS = {
+    SCOPE_HEADING: "Scope",
+    CONFIRMED_CONSTRAINTS_HEADING: "Confirmed constraints",
+}
 RULE_ID_PATTERN = re.compile(r"<!--\s*rule-id:\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*-->")
 ADAPTER_SYNTAX_PATTERN = re.compile(
     r"^(?:alwaysApply|globs|applyTo|fileMatchPattern)\s*:", re.MULTILINE
@@ -33,6 +37,21 @@ KNOWN_ADAPTER_PATHS = (
     ".codebuddy/rules/**/*.mdc",
 )
 BUNDLED_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "references" / "adapters.json"
+ADAPTER_SUPPORT_LEVELS = frozenset(
+    {"native-auto", "import-supported", "manual-reference", "unverified"}
+)
+REGISTRY_REQUIRED_FIELDS = (
+    "id",
+    "name",
+    "path",
+    "scope_loading",
+    "import_capability",
+    "support",
+    "template",
+    "verified_at",
+    "sources",
+)
+REGISTRY_VERIFIED_AT = "2026-07-28"
 RegistryInput = Optional[Union[Path, Dict[str, object]]]
 
 
@@ -71,17 +90,39 @@ def load_manifest(path: Path) -> Dict[str, object]:
     return data
 
 
-def _validate_adapter_registry(data: object) -> Dict[str, object]:
+def _registry_root(path: Path) -> Path:
+    """Return the repository root for a conventional references/adapters.json path."""
+    return path.parent.parent if path.parent.name == "references" else path.parent
+
+
+def _validate_adapter_registry(
+    data: object, template_root: Optional[Path] = None
+) -> Dict[str, object]:
     if not isinstance(data, dict) or not isinstance(data.get("adapters"), list):
         raise ValueError("Adapter registry must be an object with an adapters array")
     for adapter in data["adapters"]:
         if not isinstance(adapter, dict):
             raise ValueError("Every adapter registry entry must be an object")
-        for key in ("id", "path"):
+        for key in REGISTRY_REQUIRED_FIELDS:
+            if key == "sources":
+                continue
             if not isinstance(adapter.get(key), str) or not adapter[key].strip():
                 raise ValueError("Every adapter registry entry requires a non-empty {}".format(key))
-        if _adapter_support(adapter) is None:
-            raise ValueError("Every adapter registry entry requires a non-empty support")
+        support = adapter["support"]
+        if support not in ADAPTER_SUPPORT_LEVELS:
+            raise ValueError("Every adapter registry entry requires a supported support value")
+        if adapter["verified_at"] != REGISTRY_VERIFIED_AT:
+            raise ValueError("Every adapter registry entry requires verified_at {}".format(REGISTRY_VERIFIED_AT))
+        sources = adapter["sources"]
+        if not isinstance(sources, list) or not sources or not all(
+            isinstance(source, str) and source.startswith("https://") for source in sources
+        ):
+            raise ValueError("Every adapter registry entry requires non-empty HTTPS sources")
+        template = Path(adapter["template"])
+        if template_root is not None:
+            template = template_root / template
+        if not template.is_file():
+            raise ValueError("Every adapter registry entry names an existing template")
     return data
 
 
@@ -91,7 +132,7 @@ def load_adapter_registry(path: Path) -> Dict[str, object]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Adapter registry is not valid JSON: {}".format(error)) from error
-    return _validate_adapter_registry(data)
+    return _validate_adapter_registry(data, _registry_root(path))
 
 
 def _resolve_adapter_registry(registry: RegistryInput) -> Optional[Dict[str, object]]:
@@ -111,7 +152,9 @@ def _rule_records(manifest: Dict[str, object]) -> Dict[str, Dict[str, object]]:
 
 
 def _has_heading(content: str, heading: str) -> bool:
-    return re.search(r"^##\s+{}\s*$".format(re.escape(heading)), content, re.MULTILINE) is not None
+    english = CANONICAL_HEADING_TRANSLATIONS.get(heading)
+    suffix = r"(?:\s*/\s+{})?".format(re.escape(english)) if english else ""
+    return re.search(r"^##\s+{}{}\s*$".format(re.escape(heading), suffix), content, re.MULTILINE) is not None
 
 
 def _adapter_support(adapter: Dict[str, object]) -> Optional[str]:

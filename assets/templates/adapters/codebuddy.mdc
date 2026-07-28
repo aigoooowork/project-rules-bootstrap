@@ -1,5 +1,10 @@
 ---
 description: Canonical rule router
 ---
+<!-- adapter-id: codebuddy -->
+<!-- adapter-support: native-auto -->
+<!-- adapter-scope: per-rule -->
+<!-- adapter-loading: native -->
+<!-- TEMPLATE METADATA — renderer MUST preserve adapter metadata and vendor frontmatter; remove this instruction. -->
 
-Start with `.ai/rules/project.md`; load only task-relevant canonical domain files. This adapter provides loading metadata and does not alter canonical rule meaning.
+Start with `.ai/rules/project.md`; load only task-relevant canonical domain files. This adapter adds no project rules.

@@ -1,4 +1,4 @@
-<!-- adapter-id: workbuddy -->
+<!-- adapter-id: generic -->
 <!-- adapter-support: manual-reference -->
 <!-- adapter-scope: manual -->
 <!-- adapter-loading: explicit-reference -->

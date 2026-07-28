@@ -1,10 +1,8 @@
 {
   "version": "1.0",
   "project": {"name": "{{PROJECT_NAME}}", "language": "selected-language"},
-  "scan_baseline": {"kind": "full-scan", "captured_at": "ISO-8601", "paths": [], "fallback_reason": "no local Git baseline"},
-  "rules": [
-    {"id": "backend.repository-access", "domain": "backend", "type": "fact", "status": "confirmed", "scope": "src/backend/**", "text": "Handlers delegate persistence through the observed repository boundary.", "confidence": "high", "evidence": [{"kind": "source", "location": "src/backend/example.py", "observation": "Observed handler-to-repository call.", "captured_at": "ISO-8601"}]}
-  ],
+  "scan_baseline": {},
+  "rules": [],
   "adapters": [],
   "confirmations": []
 }

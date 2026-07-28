@@ -1,3 +1,8 @@
-# Claude Code routing
+<!-- adapter-id: claude-code -->
+<!-- adapter-support: native-auto -->
+<!-- adapter-scope: repository -->
+<!-- adapter-loading: native -->
+<!-- TEMPLATE METADATA — renderer MUST preserve the adapter metadata comments and remove this instruction. -->
+# Canonical rule routing
 
-Read `.ai/rules/project.md` first. Route work to only the applicable canonical domain files. Their confirmed content is authoritative; this entry adds no rule meaning.
+Read `.ai/rules/project.md` first, then load only task-relevant canonical domain files. This adapter adds no project rules.
