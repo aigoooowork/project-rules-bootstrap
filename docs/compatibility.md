@@ -16,6 +16,7 @@ sources. Documentation and generated manifests must match it exactly.
 The output Manifest schema accepts these four levels. The read-only adapter
 preview uses the current registry value. A tool absent from the registry is
 reported separately as `unverified`, not promoted to another level.
+`unverified` never produces adapter output.
 
 ## Verified registry
 
@@ -38,6 +39,14 @@ directory.
 
 The Generic entry is an explicit-reference fallback for a selected tool that
 can be directed to `RULES.md`. It does not assert universal automatic support.
+WorkBuddy and Generic declare one `rules-navigation` shared output. If both are
+selected, WorkBuddy's higher registry priority owns one rendered `RULES.md`;
+the single Manifest adapter record lists `generic` and `workbuddy` as
+consumers. Generic alone may own the same neutral output. This prevents
+ambiguous overwrites.
+
+Claude Code's `CLAUDE.md` uses the documented plain import line
+`@.ai/rules/project.md`, without a Markdown code span in the generated file.
 
 ## Refresh policy
 

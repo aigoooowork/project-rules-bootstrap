@@ -28,8 +28,10 @@ class IterationTwoContractTests(unittest.TestCase):
         self.assertIn("exact registry output path", preview)
         self.assertIn("support mode", preview)
         self.assertIn("native-auto", preview)
-        self.assertIn("native-partial", preview)
+        self.assertIn("import-supported", preview)
         self.assertIn("manual-reference", preview)
+        self.assertIn("unverified", preview)
+        self.assertNotIn("native-partial", preview)
         self.assertIn(".codebuddy/rules/<rule>/RULE.mdc", preview)
         self.assertIn("import or `@` reference the root `RULES.md`", preview)
         self.assertIn("write gate blocks writes, not this read-only plan", preview)
@@ -44,6 +46,16 @@ class IterationTwoContractTests(unittest.TestCase):
         for classification in ("`preserved`", "`additive`", "`conflicting`", "`unsafe-to-merge`"):
             self.assertIn(classification, update_workflow)
         self.assertIn("Topic-level classification alone is insufficient", update_workflow)
+        self.assertIn("| Path or managed block | Classification | Reason | Write state |", update_workflow)
+
+    def test_update_reference_preserves_unchanged_canonical_constraints(self) -> None:
+        update_workflow = (
+            REPOSITORY_ROOT / "references" / "update-workflow.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("preserve it without re-confirmation", update_workflow)
+        self.assertIn("First imports", update_workflow)
+        self.assertIn("semantic changes", update_workflow)
 
     def test_sensitive_contract_covers_response_and_changed_files(self) -> None:
         skill = (REPOSITORY_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -92,6 +104,13 @@ class IterationTwoContractTests(unittest.TestCase):
                 "I use CodeBuddy and WorkBuddy.",
                 ["evals/fixtures/restricted-backend"],
             ),
+            4: (
+                "Update these generated AI rules after a source-only change. The existing confirmed "
+                "database-access constraint is still canonical and its scope, action, reason, exception "
+                "policy, and verification are unchanged. Preserve it without asking me to reconfirm it, "
+                "show the delta, and wait at both write gates.",
+                ["evals/fixtures/unchanged-constraint"],
+            ),
         }
 
         self.assertEqual({item["id"] for item in evals}, set(expected_inputs))
@@ -128,6 +147,15 @@ class IterationTwoContractTests(unittest.TestCase):
             any(
                 "response and every newly created or modified file" in text
                 for text in by_id[3]
+            )
+        )
+
+        self.assertEqual(len(by_id[4]), 5)
+        self.assertTrue(
+            any(
+                "unchanged canonical confirmed constraint" in text
+                and "without re-confirmation" in text
+                for text in by_id[4]
             )
         )
         self.assertTrue(

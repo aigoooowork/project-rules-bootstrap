@@ -87,12 +87,14 @@ The agent stops. WorkBuddy is not described as automatically loading
 >
 > Per-file merge summary:
 >
-> - `.ai/rules/project.md` — `additive`; owned canonical file
-> - `.ai/rules-manifest.json` — `additive`; update recorded delta and adapters
-> - `RULES.md` — `preserved`; update only the clearly owned managed block
-> - `AGENTS.md` — `conflicting`; no write
-> - `CLAUDE.md` — `conflicting`; no write
-> - `.cursor/rules/backend.mdc` — `conflicting`; no write
+> | Path or managed block | Classification | Reason | Write state |
+> | --- | --- | --- | --- |
+> | `.ai/rules/project.md` | `additive` | New confirmed project evidence fits the owned canonical file. | Proposed after Gate 2. |
+> | `.ai/rules-manifest.json` | `additive` | The confirmed delta and selected adapters need recording. | Proposed after Gate 2. |
+> | `RULES.md` managed block | `preserved` | The owned navigation block remains compatible. | Update only that block after Gate 2. |
+> | `AGENTS.md` | `conflicting` | Existing routing disagrees with another source. | No write. |
+> | `CLAUDE.md` | `conflicting` | Existing routing disagrees with another source. | No write. |
+> | `.cursor/rules/backend.mdc` | `conflicting` | Existing database guidance is unresolved. | No write. |
 >
 > **Gate 2: no planned canonical or adapter changes have been written. May I
 > write exactly this plan?**

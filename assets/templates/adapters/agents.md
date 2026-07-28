@@ -2,6 +2,7 @@
 <!-- adapter-support: native-auto -->
 <!-- adapter-scope: repository -->
 <!-- adapter-loading: native -->
+<!-- adapter-consumers: codex -->
 <!-- TEMPLATE METADATA — renderer MUST preserve the adapter metadata comments and remove this instruction. -->
 # Canonical rule routing
 

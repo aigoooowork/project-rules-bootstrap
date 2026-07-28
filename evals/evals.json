@@ -43,6 +43,19 @@
         "WorkBuddy is identified as manual-reference and includes explicit RULES.md import or @ reference guidance rather than a claimed native rule file.",
         "No service-layer, transaction-policy, mandatory-review, or other generic backend rule is presented as a project fact without separate evidence or confirmation."
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Update these generated AI rules after a source-only change. The existing confirmed database-access constraint is still canonical and its scope, action, reason, exception policy, and verification are unchanged. Preserve it without asking me to reconfirm it, show the delta, and wait at both write gates.",
+      "expected_output": "An update analysis that carries forward the unchanged confirmed canonical constraint without redundant confirmation while preserving both write gates.",
+      "files": ["evals/fixtures/unchanged-constraint"],
+      "expectations": [
+        "The unchanged canonical confirmed constraint is preserved without re-confirmation because its scope, action, reason, exception policy, verification, strength, confirmation record, and canonical marker are unchanged.",
+        "The response distinguishes this carry-forward from a first import or semantic change, both of which would require explicit confirmation.",
+        "Before Gate 1 approval the fixture remains byte-for-byte unchanged; after Gate 1 only the exact approved analysis path may change, and before Gate 2 no canonical, Manifest, or adapter file changes.",
+        "The response shows the source-only delta without presenting it as a new backend architecture rule or changing the existing constraint.",
+        "The final file plan classifies each existing canonical file or managed block separately and waits for exact Gate 2 approval."
+      ]
     }
   ]
 }

@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "project": {
+    "name": "unchanged-constraint-fixture",
+    "language": "en"
+  },
+  "scan_baseline": {
+    "kind": "full-scan",
+    "captured_at": "2026-07-28T00:00:00Z",
+    "paths": [
+      "."
+    ],
+    "fallback_reason": "behavior evaluation fixture"
+  },
+  "rules": [
+    {
+      "id": "backend.repository-boundary",
+      "domain": "backend",
+      "type": "constraint",
+      "status": "confirmed",
+      "scope": "src/api/**",
+      "text": "API handlers must not access the database directly.",
+      "confidence": "high",
+      "evidence": [
+        {
+          "kind": "user-confirmation",
+          "location": "confirmation.backend.repository-boundary",
+          "observation": "The constraint was explicitly confirmed.",
+          "captured_at": "2026-07-28T00:01:00Z"
+        }
+      ],
+      "confirmation_id": "confirmation.backend.repository-boundary",
+      "reason": "Keep persistence behind the repository boundary.",
+      "exception_policy": "No exceptions.",
+      "verification": "Inspect changed handlers for direct database access."
+    }
+  ],
+  "adapters": [],
+  "confirmations": [
+    {
+      "id": "confirmation.backend.repository-boundary",
+      "recorded_at": "2026-07-28T00:01:00Z",
+      "decision": "confirmed",
+      "scope": "src/api/**",
+      "rule_ids": [
+        "backend.repository-boundary"
+      ]
+    }
+  ]
+}

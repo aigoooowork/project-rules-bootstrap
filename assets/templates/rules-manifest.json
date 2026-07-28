@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "project": {"name": "{{PROJECT_NAME}}", "language": "selected-language"},
+  "project": {"name": "{{PROJECT_NAME}}", "language": "{{LANGUAGE}}"},
   "scan_baseline": null,
   "rules": [],
   "adapters": [],

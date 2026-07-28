@@ -1,11 +1,13 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from scripts.scan_project import scan_project
+from scripts.scan_project import _git_command, scan_project
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,6 +25,84 @@ def create_symlink_or_skip(link: Path, target: Path) -> None:
 
 
 class ScanProjectTests(unittest.TestCase):
+    def test_scan_stops_at_directory_entry_budget_and_reports_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index in range(5):
+                (root / "file-{}.txt".format(index)).write_text("x", encoding="utf-8")
+
+            result = scan_project(root, max_entries=3)
+
+            self.assertEqual(3, result["limits"]["directory_entries_seen"])
+            self.assertTrue(result["limits"]["directory_entries_truncated"])
+
+    def test_scan_stops_at_file_count_budget_and_reports_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index in range(5):
+                (root / "file-{}.txt".format(index)).write_text("x", encoding="utf-8")
+
+            result = scan_project(root, max_files=2)
+
+            self.assertEqual(2, len(result["files"]))
+            self.assertTrue(result["limits"]["files_truncated"])
+
+    def test_scan_marks_a_bounded_partial_body_as_truncated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package.json").write_text(
+                '{"dependencies":{"vue":"1.0.0"},"padding":"xxxxxxxx"}',
+                encoding="utf-8",
+            )
+
+            result = scan_project(root, max_file_bytes=16, max_content_bytes=16)
+            record = next(item for item in result["files"] if item["path"] == "package.json")
+
+            self.assertTrue(record["content_scanned"])
+            self.assertEqual("truncated", record["content_status"])
+            self.assertTrue(record["content_truncated"])
+            self.assertEqual(16, result["limits"]["content_bytes_read"])
+            self.assertEqual([], result["stack_signals"]["frontend"])
+
+    def test_scan_marks_failed_utf8_body_read_unverified_not_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package.json").write_bytes(b"\xff\xfe\x00")
+
+            result = scan_project(root)
+            record = next(item for item in result["files"] if item["path"] == "package.json")
+
+            self.assertFalse(record["content_scanned"])
+            self.assertEqual("unverified", record["content_status"])
+            self.assertEqual("invalid-utf8", record["content_reason"])
+
+    def test_scan_records_python_as_toolchain_without_inventing_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text(
+                "[project]\nname = 'tool-only'\n",
+                encoding="utf-8",
+            )
+
+            result = scan_project(root)
+
+            self.assertEqual([], result["stack_signals"]["backend"])
+            self.assertEqual(["python"], result["stack_signals"]["toolchains"])
+
+    def test_subprocess_timeout_preempts_a_silent_child(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            started = time.monotonic()
+
+            with self.assertRaises(subprocess.TimeoutExpired):
+                _git_command(
+                    root,
+                    [sys.executable, "-c", "import time; time.sleep(2)"],
+                    timeout_seconds=0.05,
+                )
+
+            self.assertLess(time.monotonic() - started, 1.0)
+
     def test_scan_reports_frontend_stack_without_inventing_backend(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

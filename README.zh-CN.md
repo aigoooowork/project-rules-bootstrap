@@ -72,7 +72,8 @@ level 为准。
 ```
 
 Skill 只询问仍缺失、且会影响输出的信息。所有生成的规则文件统一使用用户选择的
-一种语言；不能根据用户请求所使用的语言自动推断规则文件语言。
+`en` 或 `zh-CN`，标题也只使用该语言；不能根据用户请求所使用的语言自动推断规则
+文件语言。
 
 ## 目标项目中的生成结构
 
@@ -105,7 +106,9 @@ Skill 只询问仍缺失、且会影响输出的信息。所有生成的规则�
 只生成实际适用的 canonical 规则文件和用户选中的 adapter。`.ai/rules/` 是唯一的
 canonical 语义来源；adapter 只负责精简地指向相关规则，不复制或改变规则语义。
 `RULES.md` 是所选 WorkBuddy 或 Generic `manual-reference` adapter 的登记入口，
-必须由用户导入或显式引用。
+必须由用户导入或显式引用。如果两者同时选中，registry 的 shared-output 契约只
+渲染一次该文件，以 WorkBuddy 为具体 owner，并在一个 Manifest adapter 记录中
+列出两个 consumer。
 
 ## 工具兼容性
 
@@ -127,6 +130,9 @@ canonical 语义来源；adapter 只负责精简地指向相关规则，不复�
 登记在 registry 中的工具属于 `unverified`：Skill 不虚构路径或加载行为，也不为
 其生成 adapter。
 
+Claude Code 生成的 `CLAUDE.md` 使用不带代码 span 的
+`@.ai/rules/project.md` 导入 canonical project router。
+
 各 compatibility level 的定义、核验日期和官方来源见
 [兼容性说明](docs/compatibility.md)。
 
@@ -140,10 +146,15 @@ python scripts/scan_project.py <project-root>
 python scripts/validate_outputs.py <project-root>
 ```
 
+扫描器限制目录 entry 数、文件数、单文件字节数、内容总字节数、Git 记录与字节数，
+并对 subprocess 使用真实超时。每个 inventory 记录都会区分已读取、跳过、截断或
+未核验；敏感路径仍只记录存在性。语言或 toolchain 信号会单独报告，不能独自推导
+backend 结论。
+
 如果没有 Python，Skill 会改用只读文件搜索和本地 Git 检查，并保持与扫描器一致
-的证据结构和排除规则。被中断或无法访问的区域会标记为 `unverified`，且不会执行
-目标项目命令。内置校验器无法在无 Python 环境中运行，因此 Skill 会明确报告这一
-限制，不会把“未校验”写成“已通过”。
+的有界证据结构和排除规则。被中断或无法访问的区域会标记为 `unverified`，且不会
+执行目标项目命令。内置校验器无法在无 Python 环境中运行，因此 Skill 会明确报告
+这一限制，不会把“未校验”写成“已通过”。
 
 ## 测试与贡献
 

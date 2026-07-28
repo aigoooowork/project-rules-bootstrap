@@ -29,6 +29,9 @@ following:
    Supply the exact `id`, display `name`, output `path`, `scope_loading`,
    `import_capability`, compatibility `support`, template path, ISO verification
    date, and official `sources`.
+   If two entries intentionally share one output path, give both the same
+   `shared_output` key and distinct integer `selection_priority` values. Their
+   path, template, support, scope/loading, and import metadata must be identical.
 2. **Template:** add the smallest suitable file under
    `assets/templates/adapters/`, or reuse an identity-neutral shared template.
    The rendered adapter may locate `.ai/rules/`, route relevant domains, and
@@ -39,7 +42,8 @@ following:
    example, or an unverified path to `native-auto`.
 4. **Unit test:** extend the registry/render/validation tests under `tests/`.
    Assert the adapter ID, exact path, support level, scope/loading metadata,
-   template, and rejection of mismatched claims.
+   template, selected consumers, shared-output resolution, and rejection of
+   mismatched or unsafe claims.
 5. **Behavior eval:** add or update a focused scenario in `evals/evals.json`.
    Check the read-only preview, both write gates, selected-only generation, and
    any required manual action.
@@ -58,6 +62,11 @@ The active adapter registry may use only a subset. If evidence does not verify
 a loading path, keep the tool unverified: invent no path and generate no
 adapter. A `manual-reference` entry must tell the user exactly how to import or
 reference the file and must never be described as automatic.
+
+Registry and Manifest adapter paths must be portable relative paths. Reject
+absolute paths, parent traversal, sensitive names, symlinks, and targets
+outside the output root. The validator resolves identity from the trusted
+registry before it discovers or reads any adapter output.
 
 ## Preserve canonical rule semantics
 

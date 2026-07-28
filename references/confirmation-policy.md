@@ -17,9 +17,16 @@ unchanged.
 - Group related, low-risk `fact` items when their evidence and scope are shown together; the user may accept or correct the group.
 - Ask for `convention` confirmation by coherent theme (for example, formatting or test layout), never as an unlabelled list of inferred rules.
 - Ask for each strong constraint individually, including scope, reason, exception, verification, and its candidate ID.
+- In update mode, preserve an already-canonical constraint with a valid prior confirmation when scope, action, reason, exception policy, verification, and strength are unchanged. First imports and semantic changes require a new explicit decision.
 - A user may initiate a clearly scoped batch confirmation. Restate its members and scope; do not add unrelated candidates.
 - The first write gate is explicit approval of the analysis and selected proposed files. Until then, preserve a no-write outcome.
 - The final write gate is explicit approval of the rendered rule and adapter changes after conflicts and constraints are resolved.
 - If approval is withheld, ambiguous, expired by a material change, or limited to another scope, make no write and retain candidates only in the analysis.
 
-Confirmation records record timestamp, decision, scope, rule IDs, and batch reason when used. They do not record a person name, email, account, or Git identity.
+Confirmation records have unique IDs and record timestamp, decision, scope,
+rule IDs, and batch reason when used. Every confirmed constraint names its own
+unique matching confirmation ID and includes linked `user-confirmation`
+evidence. A user-initiated batch may produce multiple constraint-specific
+records with the same batch reason; it does not reuse one confirmation ID
+across constraints. Records do not contain a person name, email, account, or
+Git identity.

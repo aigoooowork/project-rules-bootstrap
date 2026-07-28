@@ -79,8 +79,9 @@ baseline, preserve unowned files, and show the delta before either write gate.
 ```
 
 The Skill asks only for missing setup or output-affecting information. Generated
-rule files use one language selected by the user; the Skill never infers that
-language from the language of the request.
+rule files use one language selected by the user (`en` or `zh-CN`) and render
+headings in that language only; the Skill never infers that language from the
+language of the request.
 
 ## Generated target-project structure
 
@@ -115,7 +116,10 @@ Only applicable canonical domain files and selected adapters are generated.
 `.ai/rules/` is the sole canonical semantic source. Adapter files are concise
 routing entry points and do not duplicate or change canonical rules.
 `RULES.md` is the registry entry point for a selected WorkBuddy or Generic
-manual-reference adapter; it must be imported or explicitly referenced.
+manual-reference adapter; it must be imported or explicitly referenced. If
+both are selected, the registry shared-output contract renders the file once,
+uses WorkBuddy as the concrete owner, and records both consumers in one
+Manifest adapter entry.
 
 ## Tool compatibility
 
@@ -137,6 +141,9 @@ explicitly reference `RULES.md` using the mechanism provided by that tool.
 Neither entry is automatic. Tools absent from the registry are `unverified`: no
 path or loading behavior is invented, and no adapter is generated.
 
+Claude Code's generated `CLAUDE.md` imports the canonical project router with
+the plain line `@.ai/rules/project.md`.
+
 Definitions, verification dates, and official sources are in
 [the compatibility guide](docs/compatibility.md).
 
@@ -150,8 +157,14 @@ python scripts/scan_project.py <project-root>
 python scripts/validate_outputs.py <project-root>
 ```
 
+The scanner enforces directory-entry, file-count, per-file-byte,
+total-content-byte, Git-record, Git-byte, and subprocess-time budgets. Each
+inventory row says whether content was scanned, skipped, truncated, or
+unverified. Sensitive paths remain existence-only. Language/toolchain signals
+are reported separately and never become backend conclusions by themselves.
+
 If Python is unavailable, the Skill falls back to read-only file search and
-local Git inspection. It preserves the scanner evidence shape and exclusions,
+local Git inspection. It preserves this bounded evidence shape and exclusions,
 marks interrupted or inaccessible areas as `unverified`, and does not execute
 target-project commands. The bundled validator cannot be run without Python, so
 that limitation is reported rather than silently treated as a pass.

@@ -15,11 +15,11 @@ The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 20
       "required": ["name", "language"],
       "properties": {
         "name": {"type": "string", "minLength": 1, "description": "Non-identifying display name only."},
-        "language": {"type": "string", "minLength": 1}
+        "language": {"type": "string", "enum": ["en", "zh-CN"]}
       }
     },
     "scan_baseline": {
-      "type": ["object", "null"], "description": "null is allowed only in this pre-render template and must be replaced before final output.", "additionalProperties": false,
+      "type": "object", "additionalProperties": false,
       "required": ["kind", "captured_at", "paths"],
       "properties": {
         "kind": {"type": "string", "enum": ["git", "full-scan"]},
@@ -47,9 +47,18 @@ The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 20
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
         "confirmation_id": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "exception_policy": {"type": "string", "minLength": 1},
+        "verification": {"type": "string", "minLength": 1},
         "stale": {"type": "boolean"},
         "supersedes": {"type": "string", "minLength": 1}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "constraint"}}},
+          "then": {"required": ["confirmation_id", "reason", "exception_policy", "verification"]}
+        }
+      ]
     },
     "evidence": {
       "type": "object", "additionalProperties": false,
@@ -72,13 +81,13 @@ The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 20
         "recorded_at": {"type": "string", "format": "date-time"},
         "decision": {"type": "string", "enum": ["confirmed", "rejected", "deferred"]},
         "scope": {"type": "string", "minLength": 1},
-        "rule_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "rule_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "batch_reason": {"type": "string", "minLength": 1}
       }
     },
     "adapter": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "path", "support", "template", "registry_version"],
+      "required": ["id", "path", "support", "template", "registry_version", "scope_loading", "import_capability", "consumers"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "path": {"type": "string", "minLength": 1},
@@ -86,11 +95,30 @@ The generated Manifest is UTF-8 JSON at `.ai/rules-manifest.json`. This Draft 20
         "template": {"type": "string", "minLength": 1},
         "registry_version": {"type": "string", "minLength": 1},
         "scope_loading": {"type": "string", "minLength": 1},
-        "import_capability": {"type": "string", "minLength": 1}
+        "import_capability": {"type": "string", "minLength": 1},
+        "consumers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     }
   }
 }
 ```
 
-`project.name` and all confirmation records must contain no name, email, account identifier, or Git identity. Evidence records may identify local paths and bounded commit identifiers, but never secret content. A confirmed constraint must have `type: "constraint"`, `status: "confirmed"`, and a matching confirmation record; stale rules must set `stale: true`.
+`assets/templates/rules-manifest.json` is a pre-render structural template and
+therefore uses `scan_baseline: null`; that template is not a valid final
+Manifest. The renderer must replace every placeholder and the null baseline
+before validation.
+
+The validator additionally enforces invariants that JSON Schema cannot express
+directly: rule IDs, confirmation-record IDs, constraint `confirmation_id`
+values, and adapter owner IDs are unique; every Manifest rule has exactly one
+canonical `rule-id` marker; adapter metadata matches the authoritative
+registry; and every constraint in any canonical rule file has a confirmed
+record whose ID, rule membership, and scope match. A
+constraint also requires linked `user-confirmation` evidence, reason, exception
+policy, and verification. A shared adapter output has one owner record and
+lists every selected consumer in `consumers`.
+
+`project.name` and all confirmation records must contain no person name, email,
+account identifier, or Git identity. Evidence records may identify local paths
+and bounded commit identifiers, but never secret content. Stale rules must set
+`stale: true`.

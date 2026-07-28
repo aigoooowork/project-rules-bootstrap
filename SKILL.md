@@ -57,7 +57,7 @@ python scripts/scan_project.py <project-root>
 
 Use its JSON as evidence, not as rule conclusions. Read relevant existing instruction files only when they are regular, non-sensitive files inside the root.
 
-If Python is unavailable, use existing file-search and read-only local Git tools. Preserve the scanner's evidence shape: root, sorted file inventory with classification and `content_scanned`, stack signals, module manifests, and bounded Git availability/status/commit records. Apply the scanner's exclusions for `.git`, dependencies, build outputs, caches, virtual environments, sensitive names, unreadable/binary files, and outside-root symlinks. Mark interrupted or inaccessible areas as unverified.
+If Python is unavailable, use existing file-search and read-only local Git tools. Preserve the scanner's evidence shape: root; sorted file inventory with classification, `content_scanned`, content status, truncation, byte count, and reason; direct framework/toolchain signals; module manifests; scan-budget status; and bounded Git availability/status/commit records. Apply directory-entry, file-count, per-file-byte, total-content-byte, and subprocess-time budgets. Apply the scanner's exclusions for `.git`, dependencies, build outputs, caches, virtual environments, sensitive names, unreadable/binary files, and outside-root symlinks. Mark interrupted, truncated, skipped, or inaccessible areas explicitly. A language or toolchain signal alone does not establish a backend framework or architecture.
 
 ### 3. Classify before asking
 
@@ -103,10 +103,10 @@ Each row must show:
 
 - adapter ID and name;
 - exact registry output path;
-- support mode: `native-auto`, `native-partial`, or `manual-reference`;
+- support mode: `native-auto`, `import-supported`, `manual-reference`, or `unverified`;
 - the explicit manual action when the support mode is `manual-reference`.
 
-Use the registry value without guessing. For CodeBuddy, show `native-auto` and
+Use the registry value without guessing. `unverified` produces no adapter output. For CodeBuddy, show `native-auto` and
 `.codebuddy/rules/<rule>/RULE.mdc`. For WorkBuddy, show `manual-reference` and
 tell the user to import or `@` reference the root `RULES.md`; never invent a
 native WorkBuddy rules path. If an assistant has no registry entry, list it
@@ -176,15 +176,16 @@ Show an exact final plan with four lists:
 Add a conflict/merge summary that assigns every discovered existing rule file
 or clearly owned managed block exactly one of `preserved`, `additive`,
 `conflicting`, or `unsafe-to-merge`. Classify each file or block separately;
-topic-level classification alone is insufficient. Show any semantic change
-requiring reconfirmation. Then stop and request explicit final write
-confirmation for that exact plan.
+topic-level classification alone is insufficient. Use the concrete per-file
+table shape in `references/update-workflow.md`; keep reason and write state out
+of the classification cell. Show any semantic change requiring reconfirmation.
+Then stop and request explicit final write confirmation for that exact plan.
 
 If approval is absent or narrower than the plan, do not write outside the approved scope.
 
 ### 8. Render only the approved files
 
-Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it.
+Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files with `scripts/render_rules.py` so every heading uses the Manifest's exact `en` or `zh-CN` language. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it. Every Manifest rule has one unique canonical `rule-id` marker. Every confirmed constraint, in any canonical domain file, has a unique rule ID, scope, reason, exception policy, verification, its own unique confirmation ID, user-confirmation evidence, and a matching confirmed record with the same scope.
 
 Keep `RULES.md` short: human/generic navigation only. Generate only selected adapters from the exact current entries in `references/adapters.json`:
 
@@ -194,14 +195,22 @@ Keep `RULES.md` short: human/generic navigation only. Generate only selected ada
 - Treat WorkBuddy as `manual-reference` unless refreshed official metadata proves otherwise.
 - Do not promote stale or unverified metadata. A live refresh is optional; if performed, use official sources only.
 - If a selected tool has no registry entry, mark it `unverified`, invent no path or loading behavior, and generate no adapter for it.
+- Resolve selected adapters through `scripts/adapter_registry.py` before reading or writing an adapter path. Manifest ID, registry version, path, template, scope/loading, import mode, support, and consumers must match the trusted registry. Reject absolute, parent-traversal, sensitive, symlinked, or outside-root targets.
+- When WorkBuddy and Generic are both selected, use their registry `shared_output` contract: render root `RULES.md` once with WorkBuddy as the concrete owner and record both consumer IDs in the single Manifest adapter entry. Never overwrite the same output twice.
 
 Remove author-only comments, placeholders, and empty conditional sections. For a shared adapter template, use the selected registry entry's identity, support, scope, and loading metadata; `scripts/render_adapters.py` contains the deterministic rendering helper.
 
 Preserve existing rule files. Merge only inside clearly owned managed blocks. If safe ownership or merge boundaries cannot be proven, create a proposal or patch outside the existing file and leave the original unchanged.
 
+When Python is available, apply Gate 1 and Gate 2 changes through
+`scripts/write_outputs.py`. Its analysis operation accepts only
+`.ai/rules.analysis.md`; its final operation preflights the exact approved path
+set, creates only absent files, and changes an existing file only inside one
+clearly owned managed-marker pair. A failed preflight writes nothing.
+
 ### 9. Update-specific delta
 
-Prefer the stored Git scan baseline from the prior Manifest. Reclassify the local delta and reconfirm semantic changes to scope, action, exception, verification, or constraint strength.
+Prefer the stored Git scan baseline from the prior Manifest. Reclassify the local delta. Preserve an already-canonical, validly confirmed constraint without re-confirmation when its scope, action, reason, exception policy, verification, and strength are unchanged. First imports and semantic changes require explicit confirmation.
 
 Fall back to a bounded full scan when the baseline is missing, local Git is unavailable, or project structure/stack changed materially. Record the fallback reason and mark anything not rechecked as unverified.
 
