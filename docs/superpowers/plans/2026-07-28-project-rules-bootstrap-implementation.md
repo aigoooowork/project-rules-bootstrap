@@ -658,10 +658,10 @@ git commit -m "docs: add bilingual usage and contribution guides"
 
 ---
 
-### Task 8: Create the Final `.gitignore`
+### Task 8: Expand the Final `.gitignore`
 
 **Files:**
-- Create: `.gitignore`
+- Modify: `.gitignore`
 
 **Interfaces:**
 - Consumes: Actual build, test, evaluation, cache, and packaging paths created by Tasks 1–7.
@@ -680,9 +680,12 @@ Classify every untracked path as public source, test fixture, local cache, evalu
 
 - [ ] **Step 2: Write `.gitignore`**
 
-Start with:
+Preserve the existing worktree exclusion and expand the file to:
 
 ```gitignore
+# Local Git worktrees
+.worktrees/
+
 # Python runtime artifacts
 __pycache__/
 *.py[cod]
