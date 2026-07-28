@@ -5,12 +5,23 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set
 
 
 SENSITIVE_NAMES = {".env", ".env.local", "id_rsa", "id_ed25519"}
 IGNORED_DIRS = {".git", "node_modules", "dist", "build", "__pycache__", ".venv"}
+MAX_GIT_OUTPUT_BYTES = 16 * 1024
+MAX_GIT_STATUS_RECORDS = 200
+MAX_GIT_COMMIT_RECORDS = 100
+
+
+@dataclass(frozen=True)
+class _GitCommandResult:
+    returncode: int
+    stdout: str
+    truncated: bool
 
 
 def classify_path(path: Path) -> str:
@@ -119,7 +130,8 @@ def _collect_files(root: Path, max_depth: int) -> List[Path]:
             if relative_depth > max_depth:
                 continue
             if entry.is_symlink():
-                files.append(path)
+                if is_within_root(path, root):
+                    files.append(path)
             elif entry.is_dir(follow_symlinks=False):
                 if entry.name not in IGNORED_DIRS:
                     pending.append(path)
@@ -128,22 +140,48 @@ def _collect_files(root: Path, max_depth: int) -> List[Path]:
     return sorted(files, key=lambda path: _relative_path(root, path))
 
 
-def _git_command(root: Path, arguments: List[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(
+def _git_command(root: Path, arguments: List[str]) -> _GitCommandResult:
+    process = subprocess.Popen(
         arguments,
         cwd=str(root),
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         shell=False,
-        timeout=5,
+    )
+    try:
+        raw_output = process.stdout.read(MAX_GIT_OUTPUT_BYTES + 1)
+        truncated = len(raw_output) > MAX_GIT_OUTPUT_BYTES
+        if truncated:
+            process.terminate()
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+    return _GitCommandResult(
+        returncode=process.returncode,
+        stdout=raw_output[:MAX_GIT_OUTPUT_BYTES].decode("utf-8", errors="replace"),
+        truncated=truncated,
     )
 
 
+def _bounded_lines(output: str, limit: int, byte_truncated: bool) -> tuple[List[str], bool]:
+    lines = output.splitlines()
+    if byte_truncated and output and not output.endswith(("\n", "\r")):
+        lines.pop()
+    return sorted(lines[:limit]), byte_truncated or len(lines) > limit
+
+
 def _git_evidence(root: Path, recent_commits: int) -> Dict[str, object]:
-    unavailable: Dict[str, object] = {"available": False, "status": [], "commits": []}
+    unavailable: Dict[str, object] = {
+        "available": False,
+        "status": [],
+        "status_truncated": False,
+        "commits": [],
+        "commits_truncated": False,
+    }
     try:
         probe = _git_command(root, ["git", "rev-parse", "--is-inside-work-tree"])
     except (OSError, subprocess.TimeoutExpired):
@@ -151,25 +189,39 @@ def _git_evidence(root: Path, recent_commits: int) -> Dict[str, object]:
     if probe.returncode != 0 or probe.stdout.strip() != "true":
         return unavailable
 
+    requested_commit_count = max(0, recent_commits)
+    commit_limit = min(requested_commit_count, MAX_GIT_COMMIT_RECORDS)
     try:
         status = _git_command(root, ["git", "status", "--short"])
         log = _git_command(
             root,
-            ["git", "log", "-n", str(max(0, recent_commits)), "--format=%H%x1f%s"],
+            ["git", "log", "-n", str(commit_limit), "--format=%H%x1f%s"],
         )
     except (OSError, subprocess.TimeoutExpired):
         return unavailable
 
     commits: List[Dict[str, str]] = []
-    if log.returncode == 0:
-        for line in log.stdout.splitlines():
+    commit_lines = log.stdout.splitlines()
+    if log.truncated and log.stdout and not log.stdout.endswith(("\n", "\r")):
+        commit_lines.pop()
+    if log.returncode == 0 or log.truncated:
+        for line in commit_lines[:MAX_GIT_COMMIT_RECORDS]:
             commit_hash, separator, subject = line.partition("\x1f")
             if separator:
                 commits.append({"hash": commit_hash, "subject": subject})
+    status_records, status_truncated = _bounded_lines(
+        status.stdout if status.returncode == 0 or status.truncated else "",
+        MAX_GIT_STATUS_RECORDS,
+        status.truncated,
+    )
     return {
         "available": True,
-        "status": sorted(status.stdout.splitlines()) if status.returncode == 0 else [],
+        "status": status_records,
+        "status_truncated": status_truncated,
         "commits": commits,
+        "commits_truncated": log.truncated
+        or requested_commit_count > commit_limit
+        or len(commit_lines) > MAX_GIT_COMMIT_RECORDS,
     }
 
 

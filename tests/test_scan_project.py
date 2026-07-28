@@ -61,18 +61,22 @@ class ScanProjectTests(unittest.TestCase):
     def test_scan_does_not_follow_symlink_outside_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            outside = root.parent / "outside-secret.txt"
-            outside.write_text("OUTSIDE_SENTINEL", encoding="utf-8")
-            link = root / "linked-secret.txt"
-            self.addCleanup(lambda: outside.unlink(missing_ok=True))
+            outside = root.parent / "outside-scan-fixture"
+            outside.mkdir()
+            (outside / "package.json").write_text(
+                '{"dependencies": {"vue": "OUTSIDE_SENTINEL"}}', encoding="utf-8"
+            )
+            (outside / "pyproject.toml").write_text("[project]\nname = 'outside'\n", encoding="utf-8")
+            link = root / "outside-link"
+            self.addCleanup(lambda: shutil.rmtree(outside, ignore_errors=True))
             create_symlink_or_skip(link, outside)
 
             result = scan_project(root)
-            record = next(item for item in result["files"] if item["path"] == "linked-secret.txt")
 
             self.assertNotIn("OUTSIDE_SENTINEL", json.dumps(result))
-            self.assertEqual("symlink", record.get("classification"))
-            self.assertFalse(record["content_scanned"])
+            self.assertNotIn("outside-link", [item["path"] for item in result["files"]])
+            self.assertEqual({"frontend": [], "backend": []}, result["stack_signals"])
+            self.assertEqual([], result["modules"])
 
     def test_scan_marks_non_git_directory_as_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -88,14 +92,31 @@ class ScanProjectTests(unittest.TestCase):
             self._git(root, "config", "user.email", "scanner@example.invalid")
             self._git(root, "commit", "--allow-empty", "-m", "first commit")
             self._git(root, "commit", "--allow-empty", "-m", "second commit")
+            self._git(root, "commit", "--allow-empty", "-m", "third commit")
+            self._git(root, "commit", "--allow-empty", "-m", "fourth commit")
 
             result = scan_project(root, recent_commits=2)
 
             self.assertTrue(result["git"]["available"])
             self.assertEqual(
-                ["second commit", "first commit"],
+                ["fourth commit", "third commit"],
                 [commit["subject"] for commit in result["git"]["commits"]],
             )
+
+    def test_scan_bounds_git_status_records_and_marks_truncation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._git(root, "init")
+            self._git(root, "config", "user.name", "Scanner Test")
+            self._git(root, "config", "user.email", "scanner@example.invalid")
+            self._git(root, "commit", "--allow-empty", "-m", "initial commit")
+            for index in range(201):
+                (root / "untracked-{:03}.txt".format(index)).write_text("x", encoding="utf-8")
+
+            result = scan_project(root)
+
+            self.assertEqual(200, len(result["git"]["status"]))
+            self.assertTrue(result["git"].get("status_truncated"))
 
     @staticmethod
     def _git(root: Path, *arguments: str) -> None:
