@@ -1,0 +1,8 @@
+---
+description: Backend implementation guidance
+globs: services/**/*.py
+alwaysApply: false
+---
+
+- API handlers may query the database directly for read-only endpoints.
+- Repository modules are reserved for write workflows.

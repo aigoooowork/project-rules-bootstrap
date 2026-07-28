@@ -1,0 +1,11 @@
+{
+  "name": "@customer/web",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  }
+}

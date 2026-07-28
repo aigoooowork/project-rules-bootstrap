@@ -1,0 +1,12 @@
+{
+  "name": "customer-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @customer/web run dev",
+    "test": "npm run --workspaces --if-present test"
+  }
+}
