@@ -24,6 +24,10 @@ def write_manifest(
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
 
+def write_adapter_registry(path: Path, adapters: List[Dict[str, object]]) -> None:
+    path.write_text(json.dumps({"adapters": adapters}), encoding="utf-8")
+
+
 class ValidateOutputTreeTests(unittest.TestCase):
     def test_rule_without_scope_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -44,6 +48,49 @@ class ValidateOutputTreeTests(unittest.TestCase):
                         "id": "backend.repository-boundary",
                         "type": "constraint",
                         "status": "candidate",
+                    }
+                ],
+            )
+            write_rule(
+                root,
+                ".ai/rules/restrictions.md",
+                "# Restrictions\n\n## 适用范围\nbackend/**\n\n"
+                "## 已确认的强约束\n"
+                "<!-- rule-id: backend.repository-boundary -->\n"
+                "- API handlers must not query the database.\n",
+            )
+
+            issues = validate_output_tree(root)
+
+            self.assertIn("unconfirmed-constraint", {issue.code for issue in issues})
+
+    def test_restriction_rule_id_missing_from_manifest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(root, [])
+            write_rule(
+                root,
+                ".ai/rules/restrictions.md",
+                "# Restrictions\n\n## 适用范围\nbackend/**\n\n"
+                "## 已确认的强约束\n"
+                "<!-- rule-id: backend.repository-boundary -->\n"
+                "- API handlers must not query the database.\n",
+            )
+
+            issues = validate_output_tree(root)
+
+            self.assertIn("unconfirmed-constraint", {issue.code for issue in issues})
+
+    def test_non_constraint_rule_id_in_restrictions_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(
+                root,
+                [
+                    {
+                        "id": "backend.repository-boundary",
+                        "type": "fact",
+                        "status": "confirmed",
                     }
                 ],
             )
@@ -98,10 +145,21 @@ class ValidateOutputTreeTests(unittest.TestCase):
     def test_adapter_support_claim_must_match_registry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            registry_path = root / "adapters.json"
             write_manifest(
                 root,
                 [],
                 adapters=[
+                    {
+                        "id": "workbuddy",
+                        "path": "RULES.md",
+                        "support": "manual-reference",
+                    }
+                ],
+            )
+            write_adapter_registry(
+                registry_path,
+                [
                     {
                         "id": "workbuddy",
                         "path": "RULES.md",
@@ -117,7 +175,67 @@ class ValidateOutputTreeTests(unittest.TestCase):
                 "Read .ai/rules/project.md for the shared rules.\n",
             )
 
-            issues = validate_output_tree(root)
+            issues = validate_output_tree(root, registry_path)
+
+            self.assertIn("adapter-support-mismatch", {issue.code for issue in issues})
+
+    def test_manifest_adapter_support_must_match_authoritative_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry_path = root / "adapters.json"
+            write_manifest(
+                root,
+                [],
+                adapters=[
+                    {
+                        "id": "workbuddy",
+                        "path": "RULES.md",
+                        "support": "native-auto",
+                    }
+                ],
+            )
+            write_adapter_registry(
+                registry_path,
+                [
+                    {
+                        "id": "workbuddy",
+                        "path": "RULES.md",
+                        "support": "manual-reference",
+                    }
+                ],
+            )
+            write_rule(root, ".ai/rules/project.md", "# Project\n\n## 适用范围\n./\n")
+
+            issues = validate_output_tree(root, registry_path)
+
+            self.assertIn("adapter-support-mismatch", {issue.code for issue in issues})
+
+    def test_registry_object_is_accepted_as_authoritative_input(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(
+                root,
+                [],
+                adapters=[
+                    {
+                        "id": "workbuddy",
+                        "path": "RULES.md",
+                        "support": "native-auto",
+                    }
+                ],
+            )
+            write_rule(root, ".ai/rules/project.md", "# Project\n\n## 适用范围\n./\n")
+            registry = {
+                "adapters": [
+                    {
+                        "id": "workbuddy",
+                        "path": "RULES.md",
+                        "support": "manual-reference",
+                    }
+                ]
+            }
+
+            issues = validate_output_tree(root, registry)
 
             self.assertIn("adapter-support-mismatch", {issue.code for issue in issues})
 

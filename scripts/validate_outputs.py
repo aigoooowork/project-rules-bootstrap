@@ -6,7 +6,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 
 MANIFEST_PATH = Path(".ai/rules-manifest.json")
@@ -32,6 +32,8 @@ KNOWN_ADAPTER_PATHS = (
     ".trae/rules/**/*.md",
     ".codebuddy/rules/**/*.mdc",
 )
+BUNDLED_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "references" / "adapters.json"
+RegistryInput = Optional[Union[Path, Dict[str, object]]]
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,41 @@ def load_manifest(path: Path) -> Dict[str, object]:
         if _adapter_support(adapter) is None:
             raise ValueError("Every Manifest adapter requires a non-empty support")
     return data
+
+
+def _validate_adapter_registry(data: object) -> Dict[str, object]:
+    if not isinstance(data, dict) or not isinstance(data.get("adapters"), list):
+        raise ValueError("Adapter registry must be an object with an adapters array")
+    for adapter in data["adapters"]:
+        if not isinstance(adapter, dict):
+            raise ValueError("Every adapter registry entry must be an object")
+        for key in ("id", "path"):
+            if not isinstance(adapter.get(key), str) or not adapter[key].strip():
+                raise ValueError("Every adapter registry entry requires a non-empty {}".format(key))
+        if _adapter_support(adapter) is None:
+            raise ValueError("Every adapter registry entry requires a non-empty support")
+    return data
+
+
+def load_adapter_registry(path: Path) -> Dict[str, object]:
+    """Load the authoritative adapter registry from JSON."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Adapter registry is not valid JSON: {}".format(error)) from error
+    return _validate_adapter_registry(data)
+
+
+def _resolve_adapter_registry(registry: RegistryInput) -> Optional[Dict[str, object]]:
+    if registry is None:
+        if not BUNDLED_REGISTRY_PATH.is_file():
+            return None
+        return load_adapter_registry(BUNDLED_REGISTRY_PATH)
+    if isinstance(registry, Path):
+        return load_adapter_registry(registry)
+    if isinstance(registry, dict):
+        return _validate_adapter_registry(registry)
+    raise ValueError("Adapter registry must be a path or object")
 
 
 def _rule_records(manifest: Dict[str, object]) -> Dict[str, Dict[str, object]]:
@@ -111,7 +148,12 @@ def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[Validati
         rules = _rule_records(manifest)
         for rule_id in RULE_ID_PATTERN.findall(content):
             rule = rules.get(rule_id)
-            if rule is not None and rule.get("type") == "constraint" and rule.get("status") != "confirmed":
+            is_confirmed_constraint = (
+                rule is not None
+                and rule.get("type") == "constraint"
+                and rule.get("status") == "confirmed"
+            )
+            if not is_confirmed_constraint:
                 issues.append(
                     ValidationIssue(
                         "unconfirmed-constraint",
@@ -159,18 +201,47 @@ def _adapter_metadata(content: str) -> Dict[str, str]:
     return metadata
 
 
-def _adapter_registry(manifest: Dict[str, object]) -> Dict[str, Dict[str, object]]:
-    registry: Dict[str, Dict[str, object]] = {}
-    for adapter in manifest.get("adapters", []):
+def _adapter_registry_records(registry: Dict[str, object]) -> Dict[str, Dict[str, object]]:
+    records: Dict[str, Dict[str, object]] = {}
+    for adapter in registry.get("adapters", []):
         if isinstance(adapter, dict):
-            registry[str(adapter["id"])] = adapter
-    return registry
+            records[str(adapter["id"])] = adapter
+    return records
+
+
+def _manifest_adapter_issues(
+    manifest: Dict[str, object], registry: Dict[str, object]
+) -> List[ValidationIssue]:
+    expected_adapters = _adapter_registry_records(registry)
+    issues: List[ValidationIssue] = []
+    for adapter in manifest.get("adapters", []):
+        if not isinstance(adapter, dict):
+            continue
+        adapter_id = str(adapter["id"])
+        expected = expected_adapters.get(adapter_id)
+        expected_support = _adapter_support(expected) if expected is not None else None
+        claimed_support = _adapter_support(adapter)
+        if expected_support is None or claimed_support != expected_support:
+            expected_text = expected_support if expected_support is not None else "no registered support level"
+            issues.append(
+                ValidationIssue(
+                    "adapter-support-mismatch",
+                    MANIFEST_PATH.as_posix(),
+                    "Manifest adapter '{}' claims '{}' but the registry requires '{}'".format(
+                        adapter_id, claimed_support, expected_text
+                    ),
+                )
+            )
+    return issues
 
 
 def _adapter_issues(
-    root: Path, manifest: Dict[str, object], canonical_files: List[Path]
+    root: Path,
+    manifest: Dict[str, object],
+    registry: Optional[Dict[str, object]],
+    canonical_files: List[Path],
 ) -> List[ValidationIssue]:
-    registry = _adapter_registry(manifest)
+    registry_records = _adapter_registry_records(registry) if registry is not None else {}
     canonical_bodies = []
     for path in canonical_files:
         try:
@@ -194,7 +265,7 @@ def _adapter_issues(
             or metadata.get("support")
             or metadata.get("support-level")
         )
-        expected = registry.get(adapter_id) if adapter_id else None
+        expected = registry_records.get(adapter_id) if adapter_id else None
         expected_support = _adapter_support(expected) if expected is not None else None
         if claimed_support is not None and expected_support is not None and claimed_support != expected_support:
             issues.append(
@@ -218,7 +289,7 @@ def _adapter_issues(
     return issues
 
 
-def validate_output_tree(root: Path) -> List[ValidationIssue]:
+def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[ValidationIssue]:
     """Return deterministic validation issues for a generated output tree."""
     root = root.resolve(strict=False)
     manifest_path = root / MANIFEST_PATH
@@ -229,6 +300,12 @@ def validate_output_tree(root: Path) -> List[ValidationIssue]:
         code = "missing-manifest" if not manifest_path.exists() else "invalid-manifest"
         issues.append(ValidationIssue(code, MANIFEST_PATH.as_posix(), str(error)))
         manifest = {"rules": []}
+
+    try:
+        adapter_registry = _resolve_adapter_registry(registry)
+    except ValueError as error:
+        issues.append(ValidationIssue("invalid-adapter-registry", "references/adapters.json", str(error)))
+        adapter_registry = None
 
     canonical_files = _canonical_rule_files(root)
     if not canonical_files:
@@ -257,17 +334,20 @@ def validate_output_tree(root: Path) -> List[ValidationIssue]:
                 )
             else:
                 seen_rule_ids[rule_id] = current_path
-    issues.extend(_adapter_issues(root, manifest, canonical_files))
+    if adapter_registry is not None:
+        issues.extend(_manifest_adapter_issues(manifest, adapter_registry))
+    issues.extend(_adapter_issues(root, manifest, adapter_registry, canonical_files))
     return sorted(issues, key=lambda issue: (issue.path, issue.code, issue.message))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
+    parser.add_argument("--registry", type=Path, help="authoritative adapters.json path")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    issues = validate_output_tree(args.root)
+    issues = validate_output_tree(args.root, args.registry)
     for issue in issues:
         print("{}: {}: {}".format(issue.path, issue.code, issue.message))
     return 1 if issues else 0
