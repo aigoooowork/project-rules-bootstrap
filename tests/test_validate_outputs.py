@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from scripts.render_adapters import render_adapter_template
 from scripts.validate_outputs import _adapter_metadata, load_adapter_registry, validate_output_tree
 
 
@@ -133,13 +134,16 @@ class ValidateOutputTreeTests(unittest.TestCase):
             with self.subTest(adapter=adapter["id"]):
                 content = (REPOSITORY_ROOT / adapter["template"]).read_text(encoding="utf-8")
                 metadata = _adapter_metadata(content)
-                if adapter["template"] != "assets/templates/adapters/rules.md":
-                    self.assertEqual(metadata.get("adapter-id"), adapter["id"])
+                if adapter["template"] == "assets/templates/adapters/rules.md":
+                    self.assertNotIn("adapter-id:", content)
+                    self.assertNotIn("adapter-support:", content)
+                    self.assertNotIn("adapter-scope:", content)
+                    self.assertNotIn("adapter-loading:", content)
                 else:
-                    self.assertIn(metadata.get("adapter-id"), {"workbuddy", "generic"})
-                self.assertEqual(metadata.get("adapter-support"), adapter["support"])
-                self.assertIn("adapter-scope:", content)
-                self.assertIn("adapter-loading:", content)
+                    self.assertEqual(metadata.get("adapter-id"), adapter["id"])
+                    self.assertEqual(metadata.get("adapter-support"), adapter["support"])
+                    self.assertIn("adapter-scope:", content)
+                    self.assertIn("adapter-loading:", content)
 
     def test_registry_uses_exact_shared_rules_template_mappings(self) -> None:
         registry = load_adapter_registry(REPOSITORY_ROOT / "references" / "adapters.json")
@@ -148,6 +152,44 @@ class ValidateOutputTreeTests(unittest.TestCase):
         self.assertEqual(templates["workbuddy"], "assets/templates/adapters/rules.md")
         self.assertEqual(templates["generic"], "assets/templates/adapters/rules.md")
         self.assertFalse((REPOSITORY_ROOT / "assets/templates/adapters/generic-rules.md").exists())
+
+    def test_shared_adapter_template_renders_selected_registry_identity(self) -> None:
+        registry_path = REPOSITORY_ROOT / "references" / "adapters.json"
+        registry = load_adapter_registry(registry_path)
+        selected = {
+            adapter["id"]: adapter
+            for adapter in registry["adapters"]
+            if adapter["id"] in {"workbuddy", "generic"}
+        }
+
+        self.assertEqual(set(selected), {"workbuddy", "generic"})
+        for adapter_id, adapter in selected.items():
+            with self.subTest(adapter=adapter_id), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                shared_template = REPOSITORY_ROOT / adapter["template"]
+                rendered = render_adapter_template(shared_template, adapter)
+                metadata = _adapter_metadata(rendered)
+                self.assertEqual(metadata.get("adapter-id"), adapter_id)
+                self.assertEqual(metadata.get("adapter-support"), adapter["support"])
+                self.assertIn("adapter-scope: {}".format(adapter["scope_loading"]), rendered)
+                self.assertIn("adapter-loading: {}".format(adapter["import_capability"]), rendered)
+                self.assertNotIn("TEMPLATE METADATA", rendered)
+
+                write_manifest(
+                    root,
+                    [],
+                    adapters=[
+                        {
+                            "id": adapter_id,
+                            "path": adapter["path"],
+                            "support": adapter["support"],
+                        }
+                    ],
+                )
+                write_rule(root, ".ai/rules/project.md", "# Project\n\n## 适用范围 / Scope\n./\n")
+                write_rule(root, adapter["path"], rendered)
+
+                self.assertEqual(validate_output_tree(root, registry_path), [])
 
     def test_manifest_template_uses_schema_defined_pre_render_baseline_state(self) -> None:
         template = json.loads(
