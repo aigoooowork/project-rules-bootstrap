@@ -1,2 +1,43 @@
+# Local Git worktrees
 .worktrees/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+
+# Skill evaluation and review outputs
 project-rules-bootstrap-workspace/
+feedback.json
+review.html
+
+# Generated packages and distribution artifacts
+dist/
+*.skill
+
+# Local project-rule runtime state
+.ai/cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.log
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
