@@ -1,0 +1,7 @@
+---
+description: Route tasks to the canonical project rule files.
+globs: "**/*"
+alwaysApply: true
+---
+
+Read `.ai/rules/project.md` first, then load only applicable domain files from `.ai/rules/`. Do not treat this adapter as a source of additional constraints.

@@ -7,6 +7,15 @@ from typing import Dict, List, Optional
 from scripts.validate_outputs import validate_output_tree
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+ADAPTER_SUPPORT_LEVELS = {
+    "native-auto",
+    "import-supported",
+    "manual-reference",
+    "unverified",
+}
+
+
 def write_rule(root: Path, relative_path: str, content: str) -> None:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,6 +38,23 @@ def write_adapter_registry(path: Path, adapters: List[Dict[str, object]]) -> Non
 
 
 class ValidateOutputTreeTests(unittest.TestCase):
+    def test_bundled_adapter_registry_entries_reference_valid_templates_and_support_metadata(self) -> None:
+        registry_path = REPOSITORY_ROOT / "references" / "adapters.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+
+        self.assertIsInstance(registry.get("adapters"), list)
+        self.assertTrue(registry["adapters"])
+        for adapter in registry["adapters"]:
+            with self.subTest(adapter=adapter.get("id")):
+                self.assertIn(adapter.get("support"), ADAPTER_SUPPORT_LEVELS)
+                self.assertEqual(adapter.get("verified_at"), "2026-07-28")
+                self.assertIsInstance(adapter.get("sources"), list)
+                self.assertTrue(adapter["sources"])
+                self.assertTrue(all(source.startswith("https://") for source in adapter["sources"]))
+                template = adapter.get("template")
+                self.assertIsInstance(template, str)
+                self.assertTrue((REPOSITORY_ROOT / template).is_file())
+
     def test_rule_without_scope_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

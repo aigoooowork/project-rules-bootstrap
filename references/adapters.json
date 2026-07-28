@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "adapters": [
+    {"id":"codex","name":"Codex","path":"AGENTS.md","scope_loading":"repository","import_capability":"native","support":"native-auto","template":"assets/templates/adapters/agents.md","verified_at":"2026-07-28","sources":["https://openai.com/index/introducing-codex/"]},
+    {"id":"claude-code","name":"Claude Code","path":"CLAUDE.md","scope_loading":"repository","import_capability":"native","support":"native-auto","template":"assets/templates/adapters/claude.md","verified_at":"2026-07-28","sources":["https://docs.anthropic.com/zh-CN/docs/claude-code/memory"]},
+    {"id":"cursor","name":"Cursor","path":".cursor/rules/*.mdc","scope_loading":"glob","import_capability":"native","support":"native-auto","template":"assets/templates/adapters/cursor.mdc","verified_at":"2026-07-28","sources":["https://docs.cursor.com/context/rules"]},
+    {"id":"trae","name":"Trae","path":".trae/rules/*.md","scope_loading":"glob","import_capability":"native","support":"native-auto","template":"assets/templates/adapters/trae.md","verified_at":"2026-07-28","sources":["https://forum.trae.cn/t/topic/52"]},
+    {"id":"codebuddy","name":"CodeBuddy","path":".codebuddy/rules/<rule>/RULE.mdc","scope_loading":"per-rule","import_capability":"native","support":"native-auto","template":"assets/templates/adapters/codebuddy.mdc","verified_at":"2026-07-28","sources":["https://www.workbuddy.cn/docs/ide/User-guide/Rules"]},
+    {"id":"workbuddy","name":"WorkBuddy","path":"RULES.md","alternative_path":".ai/rules/*","scope_loading":"manual","import_capability":"explicit-reference","support":"manual-reference","template":"assets/templates/adapters/rules.md","verified_at":"2026-07-28","sources":["https://www.workbuddy.cn/docs/ide/User-guide/Rules","https://www.workbuddy.ai/docs/workbuddy/Create-Task"]},
+    {"id":"generic","name":"Generic","path":"RULES.md","scope_loading":"manual","import_capability":"explicit-reference","support":"manual-reference","template":"assets/templates/adapters/rules.md","verified_at":"2026-07-28","sources":["https://openai.com/index/introducing-codex/"]}
+  ]
+}

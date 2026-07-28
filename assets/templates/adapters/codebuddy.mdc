@@ -1,0 +1,5 @@
+---
+description: Canonical rule router
+---
+
+Start with `.ai/rules/project.md`; load only task-relevant canonical domain files. This adapter provides loading metadata and does not alter canonical rule meaning.
