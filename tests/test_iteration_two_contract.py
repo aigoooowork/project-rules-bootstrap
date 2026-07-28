@@ -51,6 +51,23 @@ class IterationTwoContractTests(unittest.TestCase):
         self.assertIn("existence-only", skill)
         self.assertIn("responses and newly created or modified files", skill)
 
+    def test_missing_generated_rule_language_must_be_asked_not_inferred(self) -> None:
+        skill = (REPOSITORY_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("ask the user to select it", skill)
+        self.assertIn("Never infer generated rule language from the prompt language", skill)
+
+    def test_update_role_question_is_asked_once_per_response(self) -> None:
+        update_workflow = (
+            REPOSITORY_ROOT / "references" / "update-workflow.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("ask the role question only once in the response", update_workflow)
+        self.assertIn(
+            "combine the current-role and role-change-status request into one question",
+            update_workflow,
+        )
+
     def test_evals_keep_prompts_and_fixtures_while_making_assertions_diagnostic(self) -> None:
         evals = json.loads(
             (REPOSITORY_ROOT / "evals" / "evals.json").read_text(encoding="utf-8")
@@ -98,8 +115,15 @@ class IterationTwoContractTests(unittest.TestCase):
                 for text in by_id[2]
             )
         )
+        self.assertEqual(len(by_id[2]), 5)
+        self.assertTrue(
+            any(
+                "role question is asked only once in the entire response" in text
+                for text in by_id[2]
+            )
+        )
 
-        self.assertEqual(len(by_id[3]), 6)
+        self.assertEqual(len(by_id[3]), 8)
         self.assertTrue(
             any(
                 "response and every newly created or modified file" in text
@@ -109,6 +133,21 @@ class IterationTwoContractTests(unittest.TestCase):
         self.assertTrue(
             any(
                 "existence-only" in text and "not read or quoted" in text
+                for text in by_id[3]
+            )
+        )
+        self.assertTrue(
+            any(
+                "Before Gate 1 approval" in text
+                and "Before Gate 2 approval" in text
+                and "entire evaluated target tree" in text
+                for text in by_id[3]
+            )
+        )
+        self.assertTrue(
+            any(
+                "generated rule language is missing" in text
+                and "must not infer it from the prompt language" in text
                 for text in by_id[3]
             )
         )

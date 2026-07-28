@@ -7,7 +7,12 @@ questions` headings, or `高风险问题` and `低风险问题` in Chinese. Show
 headings, omit every value already answered by the user or evidence, repeat no
 question, and ask no more than ten questions in one round.
 
-The scanner and analysis are read-only. No target-project rule, manifest, analysis file, or adapter is written before the applicable gate is approved.
+The scanner and preview are read-only. Before Gate 1 approval, keep the entire
+target tree byte-for-byte unchanged: do not write an analysis, canonical rule,
+manifest, navigation file, or adapter. After Gate 1 approval and before Gate 2
+approval, only the exact approved analysis path may differ; keep every
+canonical rule, manifest, navigation file, adapter, and all other target files
+unchanged.
 
 - Group related, low-risk `fact` items when their evidence and scope are shown together; the user may accept or correct the group.
 - Ask for `convention` confirmation by coherent theme (for example, formatting or test layout), never as an unlabelled list of inferred rules.

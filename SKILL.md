@@ -37,12 +37,13 @@ Before asking any question, resolve session state from the user request and exis
 - Selected coding assistants: allow multi-select and "all".
 - Generated rule language: select one language for every generated rule file.
 
-Mark every supplied value as answered. Ask only for values that remain missing, and never repeat an answered setup question later. Treat the role as local session state, not shared Manifest data.
+Mark every supplied value as answered. Ask only for values that remain missing, and never repeat an answered setup question later. If generated rule language is missing, ask the user to select it. Never infer generated rule language from the prompt language. Treat the role as local session state, not shared Manifest data.
 
 In update mode, first read `references/update-workflow.md`. In every update session, ask whether the role changed before making update decisions:
 
 - If prior local role state is available, show it, show any current role already supplied, and ask whether the role changed. Ask the current role only when still missing.
 - If no prior local role is available, state that explicitly, show any current role already supplied or ask for it when missing, and ask whether this represents a known change or whether the change status is unknown.
+- Ask this role check only once in the response. When both current role and change status are missing, combine them into one question and do not repeat either item under the later risk headings or handoff.
 
 Role does not grant authority automatically.
 
