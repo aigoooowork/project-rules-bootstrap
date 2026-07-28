@@ -118,6 +118,19 @@ class ScanProjectTests(unittest.TestCase):
             self.assertEqual(200, len(result["git"]["status"]))
             self.assertTrue(result["git"].get("status_truncated"))
 
+    def test_scan_does_not_mark_small_repository_truncated_when_request_exceeds_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._git(root, "init")
+            self._git(root, "config", "user.name", "Scanner Test")
+            self._git(root, "config", "user.email", "scanner@example.invalid")
+            self._git(root, "commit", "--allow-empty", "-m", "only commit")
+
+            result = scan_project(root, recent_commits=101)
+
+            self.assertEqual(["only commit"], [commit["subject"] for commit in result["git"]["commits"]])
+            self.assertFalse(result["git"]["commits_truncated"])
+
     @staticmethod
     def _git(root: Path, *arguments: str) -> None:
         subprocess.run(

@@ -190,12 +190,12 @@ def _git_evidence(root: Path, recent_commits: int) -> Dict[str, object]:
         return unavailable
 
     requested_commit_count = max(0, recent_commits)
-    commit_limit = min(requested_commit_count, MAX_GIT_COMMIT_RECORDS)
+    log_limit = min(requested_commit_count, MAX_GIT_COMMIT_RECORDS + 1)
     try:
         status = _git_command(root, ["git", "status", "--short"])
         log = _git_command(
             root,
-            ["git", "log", "-n", str(commit_limit), "--format=%H%x1f%s"],
+            ["git", "log", "-n", str(log_limit), "--format=%H%x1f%s"],
         )
     except (OSError, subprocess.TimeoutExpired):
         return unavailable
@@ -219,9 +219,7 @@ def _git_evidence(root: Path, recent_commits: int) -> Dict[str, object]:
         "status": status_records,
         "status_truncated": status_truncated,
         "commits": commits,
-        "commits_truncated": log.truncated
-        or requested_commit_count > commit_limit
-        or len(commit_lines) > MAX_GIT_COMMIT_RECORDS,
+        "commits_truncated": log.truncated or len(commit_lines) > MAX_GIT_COMMIT_RECORDS,
     }
 
 
