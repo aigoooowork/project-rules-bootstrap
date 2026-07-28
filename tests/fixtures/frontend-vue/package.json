@@ -1,0 +1,6 @@
+{
+  "name": "frontend-vue",
+  "dependencies": {
+    "vue": "^3.4.0"
+  }
+}
