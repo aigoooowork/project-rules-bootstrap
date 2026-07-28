@@ -1,5 +1,12 @@
 # Confirmation policy
 
+## Question rounds
+
+Present unanswered items under explicit `High-risk questions` and `Low-risk
+questions` headings, or `高风险问题` and `低风险问题` in Chinese. Show both
+headings, omit every value already answered by the user or evidence, repeat no
+question, and ask no more than ten questions in one round.
+
 The scanner and analysis are read-only. No target-project rule, manifest, analysis file, or adapter is written before the applicable gate is approved.
 
 - Group related, low-risk `fact` items when their evidence and scope are shown together; the user may accept or correct the group.

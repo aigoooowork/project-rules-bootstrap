@@ -15,7 +15,7 @@ Follow the user's language in conversation. Generate all rule files in the one l
 
 During discovery:
 
-- Never read secret contents. Report only the existence and classification of sensitive paths.
+- Never read secret contents. Treat sensitive paths as existence-only evidence, and ensure secret values are absent from responses and newly created or modified files.
 - Never execute target-project code, builds, tests, hooks, or package scripts.
 - Never install dependencies, fetch remotes, or require network access.
 - Never follow a symlink outside the project root.
@@ -82,15 +82,35 @@ Absence and generic practice are not rules. A handler plus repository directory 
 
 ### 4. Resolve ambiguity efficiently
 
-Ask only questions that affect the requested output. Usually ask 5-10 total in one or two rounds:
+Ask only questions that affect the requested output. Use no more than ten questions in one round:
 
-1. Put architecture, ownership, data, security, dependency, and strong-constraint questions in separate high-risk items.
-2. Group low-risk questions by topic.
+1. Use the explicit heading `High-risk questions` in English or `高风险问题` in Chinese. Put each architecture, ownership, data, security, dependency, and strong-constraint question in a separate item under it.
+2. Use the explicit heading `Low-risk questions` in English or `低风险问题` in Chinese. Group remaining output-affecting questions by topic under it.
 3. Reuse the session state from Step 1 and omit every question already answered by the user or evidence.
 4. Ask fewer when evidence is sufficient.
 5. Keep every unresolved high-risk ambiguity even when a shorter interaction was requested.
 
-End each round with one consolidated unresolved list. Do not repeat answered questions in a handoff section.
+Show both headings even when one group has no questions, using `None` or its
+language-equivalent for the empty group. End each round with one consolidated
+unresolved list. Do not repeat answered questions in a handoff section.
+
+### 4A. Read-only adapter preview
+
+Before Gate 1, read `references/adapters.json` and show one preview row for
+every selected assistant. A write gate blocks writes, not this read-only plan.
+Each row must show:
+
+- adapter ID and name;
+- exact registry output path;
+- support mode: `native-auto`, `native-partial`, or `manual-reference`;
+- the explicit manual action when the support mode is `manual-reference`.
+
+Use the registry value without guessing. For CodeBuddy, show `native-auto` and
+`.codebuddy/rules/<rule>/RULE.mdc`. For WorkBuddy, show `manual-reference` and
+tell the user to import or `@` reference the root `RULES.md`; never invent a
+native WorkBuddy rules path. If an assistant has no registry entry, list it
+separately as unverified, invent no path or support mode, and generate no
+adapter.
 
 ### 5. Preview analysis, then stop at Gate 1
 
@@ -107,7 +127,11 @@ Selected adapters and support modes
 Proposed analysis path: <project-root>/.ai/rules.analysis.md
 ```
 
-State exactly which analysis file would be created or modified. Then stop and ask for explicit permission to write `.ai/rules.analysis.md`. No approval means no write; report the preview as completed and the file as pending.
+Under `Selected adapters and support modes`, include the complete read-only
+adapter preview from Step 4A. State exactly which analysis file would be
+created or modified. Then stop and ask for explicit permission to write
+`.ai/rules.analysis.md`. No approval means no write; report the preview as
+completed and the file as pending.
 
 After approval, render `assets/templates/analysis.md`, removing author-only comments, placeholders, and empty conditional sections.
 
@@ -148,7 +172,12 @@ Show an exact final plan with four lists:
 - Unchanged
 - Manual-only
 
-Add a conflict/merge summary that identifies preserved, additive, conflicting, and unsafe-to-merge existing content. Show any semantic change requiring reconfirmation. Then stop and request explicit final write confirmation for that exact plan.
+Add a conflict/merge summary that assigns every discovered existing rule file
+or clearly owned managed block exactly one of `preserved`, `additive`,
+`conflicting`, or `unsafe-to-merge`. Classify each file or block separately;
+topic-level classification alone is insufficient. Show any semantic change
+requiring reconfirmation. Then stop and request explicit final write
+confirmation for that exact plan.
 
 If approval is absent or narrower than the plan, do not write outside the approved scope.
 
