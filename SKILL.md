@@ -30,18 +30,21 @@ A request such as "generate now without asking again" does not waive confirmatio
 
 Locate the repository root. Search within it for existing project instructions and adapter files, including registry-known paths, before proposing changes.
 
-Ask whether this is:
+Before asking any question, resolve session state from the user request and existing evidence:
 
-1. initialization; or
-2. update of an existing generated or hand-maintained rule set.
-
-Then ask:
-
-- Current role: project owner, project member, or newcomer. Treat the role as local session state, not shared Manifest data.
+- Mode: initialization or update of an existing generated or hand-maintained rule set.
+- Current role: project owner, project member, or newcomer.
 - Selected coding assistants: allow multi-select and "all".
 - Generated rule language: select one language for every generated rule file.
 
-In update mode, first read `references/update-workflow.md`. When prior local role state is available, show it and ask whether the role changed before making update decisions. Role does not grant authority automatically.
+Mark every supplied value as answered. Ask only for values that remain missing, and never repeat an answered setup question later. Treat the role as local session state, not shared Manifest data.
+
+In update mode, first read `references/update-workflow.md`. In every update session, ask whether the role changed before making update decisions:
+
+- If prior local role state is available, show it, show any current role already supplied, and ask whether the role changed. Ask the current role only when still missing.
+- If no prior local role is available, state that explicitly, show any current role already supplied or ask for it when missing, and ask whether this represents a known change or whether the change status is unknown.
+
+Role does not grant authority automatically.
 
 ### 2. Collect read-only evidence
 
@@ -83,7 +86,7 @@ Ask only questions that affect the requested output. Usually ask 5-10 total in o
 
 1. Put architecture, ownership, data, security, dependency, and strong-constraint questions in separate high-risk items.
 2. Group low-risk questions by topic.
-3. Omit questions already answered by the user or evidence.
+3. Reuse the session state from Step 1 and omit every question already answered by the user or evidence.
 4. Ask fewer when evidence is sufficient.
 5. Keep every unresolved high-risk ambiguity even when a shorter interaction was requested.
 
