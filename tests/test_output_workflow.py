@@ -32,6 +32,11 @@ def add_expected_hash(write: object, content: bytes) -> object:
     return write
 
 
+def write_text_exact(path: Path, content: str) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(content)
+
+
 def valid_manifest(adapters: list) -> Dict[str, object]:
     rule_id = "backend.repository-boundary"
     confirmation_id = "confirmation.backend.repository-boundary"
@@ -99,15 +104,13 @@ def write_valid_prior_tree(root: Path, adapters: list = None) -> tuple:
         + "\n"
     )
     (root / ".ai" / "rules").mkdir(parents=True)
-    (root / ".ai" / "rules" / "backend.md").write_text(
+    write_text_exact(
+        root / ".ai" / "rules" / "backend.md",
         VALID_BACKEND_RULE,
-        encoding="utf-8",
-        newline="",
     )
-    (root / ".ai" / "rules-manifest.json").write_text(
+    write_text_exact(
+        root / ".ai" / "rules-manifest.json",
         manifest_content,
-        encoding="utf-8",
-        newline="",
     )
     return VALID_BACKEND_RULE, manifest_content
 
@@ -222,15 +225,13 @@ class OutputWorkflowTests(unittest.TestCase):
             )
             (root / ".ai" / "rules").mkdir(parents=True)
             (root / ".ai" / "rules.analysis.md").write_bytes(old_analysis)
-            (root / ".ai" / "rules" / "backend.md").write_text(
+            write_text_exact(
+                root / ".ai" / "rules" / "backend.md",
                 old_rule,
-                encoding="utf-8",
-                newline="",
             )
-            (root / ".ai" / "rules-manifest.json").write_text(
+            write_text_exact(
+                root / ".ai" / "rules-manifest.json",
                 old_manifest,
-                encoding="utf-8",
-                newline="",
             )
             (root / "AGENTS.md").write_bytes(old_agents)
             (root / "KEEP.bin").write_bytes(b"\x00unchanged\r\n")
@@ -485,15 +486,13 @@ class OutputWorkflowTests(unittest.TestCase):
                 indent=2,
             ) + "\n"
             (root / ".ai" / "rules").mkdir(parents=True)
-            (root / ".ai" / "rules" / "backend.md").write_text(
+            write_text_exact(
+                root / ".ai" / "rules" / "backend.md",
                 rule_content,
-                encoding="utf-8",
-                newline="",
             )
-            (root / ".ai" / "rules-manifest.json").write_text(
+            write_text_exact(
+                root / ".ai" / "rules-manifest.json",
                 manifest_content,
-                encoding="utf-8",
-                newline="",
             )
             (root / "README.md").write_bytes(b"user-owned\n")
             before = tree_snapshot(root)
@@ -747,10 +746,9 @@ class OutputWorkflowTests(unittest.TestCase):
             manifest_content = (
                 json.dumps(valid_manifest([]), ensure_ascii=False, indent=2) + "\n"
             )
-            (root / ".ai" / "rules-manifest.json").write_text(
+            write_text_exact(
+                root / ".ai" / "rules-manifest.json",
                 manifest_content,
-                encoding="utf-8",
-                newline="",
             )
             canary = outside / "backend.md"
             canary.write_text("CANARY_BODY_MUST_NOT_BE_READ", encoding="utf-8")

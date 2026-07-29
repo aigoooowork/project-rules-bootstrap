@@ -41,3 +41,6 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local implementation planning
+/docs/superpowers
