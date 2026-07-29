@@ -1,4 +1,6 @@
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -6,6 +8,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional
+from unittest.mock import patch
 
 from scripts.render_adapters import render_adapter_template, render_selected_adapters
 from scripts.validate_outputs import _adapter_metadata, load_adapter_registry, validate_output_tree
@@ -24,6 +27,27 @@ def write_rule(root: Path, relative_path: str, content: str) -> None:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def create_directory_link(link: Path, target: Path) -> None:
+    if os.name != "nt":
+        link.symlink_to(target, target_is_directory=True)
+        return
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError("failed to create test junction: {}".format(result.stderr))
+
+
+def remove_directory_link(link: Path) -> None:
+    if link.is_symlink():
+        link.unlink()
+    else:
+        link.rmdir()
 
 
 def evidence(kind: str = "source", location: str = "src/example.py") -> Dict[str, object]:
@@ -308,6 +332,13 @@ class ValidateOutputTreeTests(unittest.TestCase):
         )
         invalid_cases["unique-rule-ids"] = duplicate_rules
 
+        ads_adapter_path = manifest_data(
+            [],
+            adapters=[{"id": "workbuddy", "path": "RULES.md:private"}],
+            language="en",
+        )
+        invalid_cases["adapter-path-windows-ads"] = ads_adapter_path
+
         shared_constraint_confirmation = manifest_data(
             [
                 confirmed_constraint(),
@@ -541,6 +572,241 @@ class ValidateOutputTreeTests(unittest.TestCase):
                 self.assertTrue(matching)
                 self.assertTrue(any(section_name in issue.message for issue in matching))
 
+    def test_mandatory_instruction_in_heading_is_rejected_without_echoing_it(self) -> None:
+        cases = {
+            "en": "Operators MUST disclose HEADING_SENTINEL",
+            "zh-CN": "操作人员必须披露 HEADING_SENTINEL",
+        }
+        for language, unsafe_heading in cases.items():
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fact = complete_rule(
+                    {
+                        "id": "security.observed-surface",
+                        "domain": "security",
+                        "scope": "security/**",
+                        "text": "The security surface was observed.",
+                    }
+                )
+                write_manifest(root, [fact], language=language)
+                content = canonical_document(
+                    language=language,
+                    scope="security/**",
+                    facts=(
+                        "<!-- rule-id: security.observed-surface -->\n"
+                        "- The security surface was observed."
+                    ),
+                )
+                content += "\n## {}\n- None.\n".format(unsafe_heading)
+                write_rule(root, ".ai/rules/security.md", content)
+
+                issues = validate_output_tree(root)
+
+                self.assertIn(
+                    "constraint-outside-confirmed-section",
+                    {issue.code for issue in issues},
+                )
+                self.assertNotIn(
+                    "HEADING_SENTINEL",
+                    "\n".join(issue.message for issue in issues),
+                )
+
+    def test_inline_or_heading_marker_is_unbound_and_cannot_satisfy_presence(self) -> None:
+        marker = "<!-- rule-id: project.unbound-marker -->"
+        cases = {
+            "inline": canonical_document(
+                language="en",
+                scope="./",
+                rules="- An inline {} is not a binding.".format(marker),
+            ),
+            "heading": (
+                canonical_document(language="en", scope="./")
+                + "\n## Notes {}\n- None.\n".format(marker)
+            ),
+        }
+        for location, content in cases.items():
+            with self.subTest(location=location), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_manifest(
+                    root,
+                    [
+                        complete_rule(
+                            {
+                                "id": "project.unbound-marker",
+                                "domain": "project",
+                                "scope": "./",
+                                "text": "Observed test rule.",
+                            }
+                        )
+                    ],
+                    language="en",
+                )
+                write_rule(root, ".ai/rules/project.md", content)
+
+                issues = validate_output_tree(root)
+                codes = {issue.code for issue in issues}
+
+                self.assertIn("unbound-rule-id-marker", codes)
+                self.assertIn("missing-canonical-rule-marker", codes)
+
+    def test_unknown_heading_never_leaks_through_marker_or_text_mismatch_diagnostics(
+        self,
+    ) -> None:
+        sentinel = "UNSAFE_HEADING_SENTINEL"
+        rule_id = "project.safe-diagnostic"
+        marker = "<!-- rule-id: {} -->".format(rule_id)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_manifest(
+                root,
+                [
+                    complete_rule(
+                        {
+                            "id": rule_id,
+                            "domain": "project",
+                            "scope": "./",
+                            "text": "Expected safe text.",
+                        }
+                    )
+                ],
+                language="en",
+            )
+            content = canonical_document(language="en", scope="./")
+            content += (
+                "\n## Notes {}\n{}\n- Tampered text.\n{}\n".format(
+                    sentinel,
+                    marker,
+                    marker,
+                )
+            )
+            write_rule(root, ".ai/rules/project.md", content)
+
+            issues = validate_output_tree(root)
+            codes = {issue.code for issue in issues}
+
+            self.assertIn("missing-constraint-marker", codes)
+            self.assertIn("rule-text-mismatch", codes)
+            self.assertNotIn(
+                sentinel,
+                "\n".join(issue.message for issue in issues),
+            )
+
+    def test_analysis_ownership_provenance_is_strict_and_matches_the_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            analysis = b"# Approved analysis\n"
+            analysis_path = root / ".ai" / "rules.analysis.md"
+            analysis_path.parent.mkdir(parents=True)
+            analysis_path.write_bytes(analysis)
+            manifest = manifest_data([], language="en")
+            manifest["analysis_ownership"] = {
+                "version": "1.0",
+                "owner": "project-rules-bootstrap",
+                "path": ".ai/rules.analysis.md",
+                "sha256": hashlib.sha256(analysis).hexdigest(),
+            }
+            manifest_path = root / ".ai" / "rules-manifest.json"
+            manifest_path.write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+            write_rule(
+                root,
+                ".ai/rules/project.md",
+                canonical_document(language="en", scope="./"),
+            )
+
+            valid_issues = validate_output_tree(root)
+
+            self.assertNotIn(
+                "invalid-manifest",
+                {issue.code for issue in valid_issues},
+            )
+            self.assertNotIn(
+                "analysis-ownership-sha256-mismatch",
+                {issue.code for issue in valid_issues},
+            )
+
+            manifest["analysis_ownership"]["sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            mismatch_issues = validate_output_tree(root)
+
+            self.assertIn(
+                "analysis-ownership-sha256-mismatch",
+                {issue.code for issue in mismatch_issues},
+            )
+
+    def test_canonical_parent_swap_after_check_does_not_read_external_canary(
+        self,
+    ) -> None:
+        import scripts.validate_outputs as validator
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "project"
+            outside = base / "outside-rules"
+            root.mkdir()
+            outside.mkdir()
+            fact = complete_rule(
+                {
+                    "id": "backend.parent-handle",
+                    "domain": "backend",
+                    "scope": "src/**",
+                    "text": "The parent handle is stable.",
+                }
+            )
+            write_manifest(root, [fact], language="en")
+            write_rule(
+                root,
+                ".ai/rules/backend.md",
+                canonical_document(
+                    language="en",
+                    scope="src/**",
+                    facts=(
+                        "<!-- rule-id: backend.parent-handle -->\n"
+                        "- The parent handle is stable."
+                    ),
+                ),
+            )
+            canary = outside / "backend.md"
+            canary.write_bytes(b"\xffEXTERNAL_CANARY_MUST_NOT_BE_READ")
+            parent = root / ".ai" / "rules"
+            original_parent = base / "original-rules"
+            original_reader = validator._read_utf8_regular_path
+            swapped = False
+
+            def swap_then_read(path: Path, *args: object, **kwargs: object) -> str:
+                nonlocal swapped
+                if not swapped and path.name == "backend.md":
+                    parent.rename(original_parent)
+                    create_directory_link(parent, outside)
+                    swapped = True
+                return original_reader(path, *args, **kwargs)
+
+            try:
+                with patch.object(
+                    validator,
+                    "_read_utf8_regular_path",
+                    side_effect=swap_then_read,
+                ):
+                    issues = validate_output_tree(root)
+
+                self.assertTrue(swapped)
+                self.assertNotIn(
+                    "unreadable-rule-file",
+                    {issue.code for issue in issues},
+                )
+                self.assertEqual(
+                    b"\xffEXTERNAL_CANARY_MUST_NOT_BE_READ",
+                    canary.read_bytes(),
+                )
+            finally:
+                if swapped and (parent.exists() or parent.is_symlink()):
+                    remove_directory_link(parent)
+                if original_parent.exists():
+                    original_parent.rename(parent)
+
     def test_duplicate_constraint_sections_do_not_hide_an_unbound_instruction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -666,7 +932,13 @@ class ValidateOutputTreeTests(unittest.TestCase):
                 [{"id": "workbuddy", "path": "RULES.md"}],
             )
             write_rule(root, ".ai/rules/project.md", "# Project\n\n## 适用范围\n./\n")
-            for claimed_path in ("../RULES.md", "C:/temp/RULES.md", ".env"):
+            for claimed_path in (
+                "../RULES.md",
+                "C:/temp/RULES.md",
+                ".env",
+                "RULES.md:private",
+                "nested:stream/RULES.md",
+            ):
                 with self.subTest(path=claimed_path):
                     write_manifest(
                         root,
@@ -687,7 +959,12 @@ class ValidateOutputTreeTests(unittest.TestCase):
 
                     issues = validate_output_tree(root, registry_path)
 
-                    self.assertIn("unsafe-adapter-path", {issue.code for issue in issues})
+                    expected_code = (
+                        "invalid-manifest"
+                        if ":" in claimed_path
+                        else "unsafe-adapter-path"
+                    )
+                    self.assertIn(expected_code, {issue.code for issue in issues})
 
     def test_registry_authorized_adapter_symlink_is_rejected_before_read(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -729,7 +1006,13 @@ class ValidateOutputTreeTests(unittest.TestCase):
             root = Path(directory)
             registry_path = root / "references" / "adapters.json"
             registry_path.parent.mkdir()
-            for output_path in ("../RULES.md", "C:/temp/RULES.md", ".env"):
+            for output_path in (
+                "../RULES.md",
+                "C:/temp/RULES.md",
+                ".env",
+                "RULES.md:private",
+                "nested:stream/RULES.md",
+            ):
                 with self.subTest(path=output_path):
                     write_adapter_registry(
                         registry_path,
@@ -1054,7 +1337,9 @@ class ValidateOutputTreeTests(unittest.TestCase):
         schema_text = (REPOSITORY_ROOT / "references/output-schema.md").read_text(encoding="utf-8")
 
         self.assertIsNone(template["scan_baseline"])
+        self.assertIsNone(template["analysis_ownership"])
         self.assertIn('"scan_baseline": {', schema_text)
+        self.assertIn('"analysis_ownership": {"$ref":', schema_text)
         self.assertIn('"type": "object", "additionalProperties": false', schema_text)
         self.assertEqual(template["rules"], [])
 

@@ -29,9 +29,16 @@ Project Rules Bootstrap 是一个面向智能编码 Agent 的 Skill，用于根�
 即使用户要求“立即全部生成”，也不能绕过任一关口，不能视为用户已经确认新的强
 约束。除非能确认某段内容属于可安全合并的托管区块，否则保留已有文件不变。更新
 计划必须把每次写入标为 `create`、`replace-owned` 或 `managed-block`；只有准确
-路径、经验证的所有权和当前 SHA-256 前置条件全部匹配，才能更新已有分析文件、
-Manifest、canonical 文件或 adapter。托管区块更新会保留 UTF-8 BOM、LF/CRLF
-换行方式以及 marker 外的全部字节。
+路径、完整且已验证的 prior Manifest/output tree 所证明的所有权和当前 SHA-256
+前置条件全部匹配，才能更新已有分析文件、Manifest、canonical 文件或 adapter；
+SHA-256 只用于并发检查，不能自行证明所有权。初始化时写入托管区块，还必须由
+已验证的新 Manifest 和权威 adapter registry 授权。全部获批输出会先完成同目录
+暂存；任何提交步骤失败都会恢复替换项并删除本次新建项。POSIX 所需的 no-follow
+标志或句柄相对能力只要缺失一项就会拒绝操作；便携路径会拒绝 `:`，避免 Windows
+备用数据流。Gate 2 会持续固定并复核已批准的分析文件，最后才安装 Manifest。
+全部计划输出安装后即越过提交点；此后的备份清理失败会保留已提交结果，发出警告
+并写入不含正文的清理日志。托管区块更新会保留
+UTF-8 BOM、LF/CRLF 换行方式以及 marker 外的全部字节。
 
 完整的停写示例见[初始化示例](docs/examples/init-example.md)和
 [更新示例](docs/examples/update-example.md)。
@@ -109,10 +116,11 @@ Skill 只询问仍缺失、且会影响输出的信息。所有生成的规则�
 
 只生成实际适用的 canonical 规则文件和用户选中的 adapter。`.ai/rules/` 是唯一的
 canonical 语义来源；adapter 只负责精简地指向相关规则，不复制或改变规则语义。
-每个 canonical `rule-id` marker 都与其紧随的单条列表正文绑定；仅折叠确定性的
-空白后，正文必须与 Manifest `rule.text` 精确一致。`MUST`、`NEVER`、`必须`、
-`禁止` 指令只能出现在明确的“已确认的强约束” section 中，并且必须有唯一的单规则
-确认记录、相同 scope 和关联确认 evidence。
+每个 canonical `rule-id` marker 必须独占一行，并与其紧随的单条列表正文绑定；
+行内 marker 或嵌入标题的 marker 无效。仅折叠确定性的空白后，正文必须与
+Manifest `rule.text` 精确一致。标题和正文中的 `MUST`、`NEVER`、`必须`、`禁止`
+都会被检测；这些指令只能作为 marker 绑定项出现在明确的“已确认的强约束”
+section 中，并且必须有唯一的单规则确认记录、相同 scope 和关联确认 evidence。
 `RULES.md` 是所选 WorkBuddy 或 Generic `manual-reference` adapter 的登记入口，
 必须由用户导入或显式引用。如果两者同时选中，registry 的 shared-output 契约只
 渲染一次该文件，以 WorkBuddy 为具体 owner，并在一个 Manifest adapter 记录中

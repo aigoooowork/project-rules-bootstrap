@@ -1,9 +1,11 @@
 """Validate generated canonical rules and tool adapters without changing them."""
 
 import argparse
+import hashlib
 import json
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,10 +32,14 @@ from scripts.rule_contract import (
     STRONG_CONSTRAINT_PATTERN,
     normalize_rule_text,
 )
+from scripts.safe_fs import DirectoryHandle, relative_exists, snapshot_relative
 
 
 MANIFEST_PATH = Path(".ai/rules-manifest.json")
 CANONICAL_RULES_PATH = Path(".ai/rules")
+ANALYSIS_PATH = ".ai/rules.analysis.md"
+ANALYSIS_OWNER = "project-rules-bootstrap"
+ANALYSIS_OWNERSHIP_VERSION = "1.0"
 BUNDLED_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "references" / "adapters.json"
 DOMAIN_VALUES = frozenset(
     {
@@ -61,6 +67,7 @@ RULE_ID_VALUE_PATTERN = re.compile(
     r"^(project|architecture|coding-style|frontend|backend|api|database|testing|security|restrictions)"
     r"(\.[a-z0-9][a-z0-9._-]*)+$"
 )
+SHA256_VALUE_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ADAPTER_SYNTAX_PATTERN = re.compile(
     r"^(?:alwaysApply|globs|applyTo|fileMatchPattern)\s*:", re.MULTILINE
 )
@@ -97,6 +104,33 @@ class _CanonicalRuleEntry:
     section_key: Optional[str]
     section_heading: str
     text_parts: List[str]
+
+
+@dataclass(frozen=True)
+class _CanonicalRuleFile:
+    path: Path
+    content: str
+
+
+def _read_utf8_regular_path(
+    path: Path,
+    *,
+    parent: Optional[DirectoryHandle] = None,
+    name: Optional[str] = None,
+) -> str:
+    try:
+        if parent is not None:
+            snapshot = parent.snapshot(name or path.name)
+        else:
+            with DirectoryHandle.open_root(path.parent) as directory:
+                snapshot = directory.snapshot(path.name)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise ValueError("path is not an existing readable regular file") from error
+    return (
+        snapshot.content.decode("utf-8")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
 
 
 def _require_object(
@@ -298,6 +332,14 @@ def _validate_manifest_adapter(value: object, index: int) -> Dict[str, object]:
     )
     for field in MANIFEST_ADAPTER_FIELDS[:-1]:
         _require_string(record[field], "{} {}".format(label, field))
+    for field in ("path", "template"):
+        if ":" in str(record[field]):
+            raise ValueError(
+                "{} {} must not contain Windows ADS syntax".format(
+                    label,
+                    field,
+                )
+            )
     if record["support"] not in ADAPTER_SUPPORT_LEVELS:
         raise ValueError("{} support is unsupported".format(label))
     consumers = _require_string_array(
@@ -314,10 +356,42 @@ def validate_manifest_data(data: object) -> Dict[str, object]:
         data,
         label="Manifest",
         required=("version", "project", "scan_baseline", "rules", "adapters", "confirmations"),
-        allowed=("version", "project", "scan_baseline", "rules", "adapters", "confirmations"),
+        allowed=(
+            "version",
+            "project",
+            "scan_baseline",
+            "rules",
+            "adapters",
+            "confirmations",
+            "analysis_ownership",
+        ),
     )
     if manifest["version"] != "1.0":
         raise ValueError("Manifest version must be 1.0")
+    if "analysis_ownership" in manifest:
+        ownership = _require_object(
+            manifest["analysis_ownership"],
+            label="Manifest analysis_ownership",
+            required=("version", "owner", "path", "sha256"),
+            allowed=("version", "owner", "path", "sha256"),
+        )
+        if ownership["version"] != ANALYSIS_OWNERSHIP_VERSION:
+            raise ValueError("Manifest analysis_ownership version must be 1.0")
+        if ownership["owner"] != ANALYSIS_OWNER:
+            raise ValueError(
+                "Manifest analysis_ownership owner must be project-rules-bootstrap"
+            )
+        if ownership["path"] != ANALYSIS_PATH:
+            raise ValueError(
+                "Manifest analysis_ownership path must be .ai/rules.analysis.md"
+            )
+        if (
+            not isinstance(ownership["sha256"], str)
+            or SHA256_VALUE_PATTERN.fullmatch(ownership["sha256"]) is None
+        ):
+            raise ValueError(
+                "Manifest analysis_ownership sha256 must be lowercase SHA-256"
+            )
 
     project = _require_object(
         manifest["project"],
@@ -393,7 +467,7 @@ def validate_manifest_data(data: object) -> Dict[str, object]:
 def load_manifest(path: Path) -> Dict[str, object]:
     """Load a final Manifest and enforce its complete normative schema."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_read_utf8_regular_path(path))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Manifest is not valid JSON: {}".format(error)) from error
     return validate_manifest_data(data)
@@ -432,6 +506,12 @@ def _canonical_sections(content: str) -> List[_CanonicalSection]:
             )
         )
     return sections
+
+
+def _safe_section_label(heading: str) -> str:
+    if heading == "<preamble>" or heading in SECTION_KEY_BY_HEADING:
+        return heading
+    return "<unrecognized-heading>"
 
 
 def _canonical_rule_entries(
@@ -612,19 +692,25 @@ def _constraint_record_issues(
     return issues
 
 
-def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[ValidationIssue]:
+def validate_rule_file(
+    path: Path,
+    manifest: Dict[str, object],
+    *,
+    content: Optional[str] = None,
+) -> List[ValidationIssue]:
     """Validate headings, rule identities, and constraints in one canonical file."""
     issue_path = path.as_posix()
-    try:
-        content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        return [
-            ValidationIssue(
-                "unreadable-rule-file",
-                issue_path,
-                "Cannot read rule file: {}".format(error),
-            )
-        ]
+    if content is None:
+        try:
+            content = _read_utf8_regular_path(path)
+        except (OSError, UnicodeDecodeError, ValueError) as error:
+            return [
+                ValidationIssue(
+                    "unreadable-rule-file",
+                    issue_path,
+                    "Cannot read rule file: {}".format(error),
+                )
+            ]
     language = str(manifest.get("project", {}).get("language", ""))
     expected = LANGUAGE_HEADINGS.get(language)
     issues: List[ValidationIssue] = []
@@ -701,27 +787,43 @@ def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[Validati
             ValidationIssue(
                 "missing-constraint-marker",
                 issue_path,
-                "Section '{}': {}".format(section_heading, reason),
+                "Section '{}': {}".format(
+                    _safe_section_label(section_heading),
+                    reason,
+                ),
             )
         )
     for section in sections:
-        if (
-            section.key != "constraints"
-            and STRONG_CONSTRAINT_PATTERN.search(section.body)
+        section_text = "{}\n{}".format(section.heading, section.body)
+        if section.key != "constraints" and STRONG_CONSTRAINT_PATTERN.search(
+            section_text
         ):
+            section_label = _safe_section_label(section.heading)
             issues.append(
                 ValidationIssue(
                     "constraint-outside-confirmed-section",
                     issue_path,
                     "Section '{}' contains a mandatory instruction outside the "
-                    "confirmed-constraints section".format(section.heading),
+                    "confirmed-constraints section".format(section_label),
                 )
             )
     constraint_entries = [
         entry for entry in entries if entry.section_key == "constraints"
     ]
     constraint_ids = [entry.rule_id for entry in constraint_entries]
-    all_ids = RULE_ID_PATTERN.findall(content)
+    marker_counts = Counter(RULE_ID_PATTERN.findall(content))
+    entry_counts = Counter(entry.rule_id for entry in entries)
+    unbound_counts = marker_counts - entry_counts
+    for rule_id, count in sorted(unbound_counts.items()):
+        issues.append(
+            ValidationIssue(
+                "unbound-rule-id-marker",
+                issue_path,
+                "Rule ID '{}' has {} marker occurrence(s) that are not bound to "
+                "an immediately following top-level list item".format(rule_id, count),
+            )
+        )
+    all_ids = [entry.rule_id for entry in entries]
     constraint_id_set = set(constraint_ids)
     records = _rule_records(manifest)
     scope_values = _canonical_scope_values(sections)
@@ -740,7 +842,8 @@ def validate_rule_file(path: Path, manifest: Dict[str, object]) -> List[Validati
                     issue_path,
                     "Rule '{}' in section '{}' does not match Manifest rule.text "
                     "after deterministic whitespace normalization".format(
-                        entry.rule_id, entry.section_heading
+                        entry.rule_id,
+                        _safe_section_label(entry.section_heading),
                     ),
                 )
             )
@@ -792,11 +895,126 @@ def _relative_path(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _canonical_rule_files(root: Path) -> List[Path]:
-    canonical_root = root / CANONICAL_RULES_PATH
-    if not canonical_root.is_dir():
-        return []
-    return sorted(path for path in canonical_root.rglob("*.md") if path.is_file())
+def _canonical_rule_files(
+    root: Path,
+) -> Tuple[List[_CanonicalRuleFile], List[ValidationIssue]]:
+    relative_root = CANONICAL_RULES_PATH.as_posix()
+    try:
+        safe_target_path(root, relative_root)
+    except ValueError as error:
+        return [], [
+            ValidationIssue(
+                "unsafe-canonical-path",
+                relative_root,
+                "Canonical root is unsafe: {}".format(error),
+            )
+        ]
+
+    handles: List[DirectoryHandle] = []
+    try:
+        project_handle = DirectoryHandle.open_root(root)
+        handles.append(project_handle)
+        ai_handle, _ = project_handle.open_directory(".ai")
+        handles.append(ai_handle)
+        canonical_handle, _ = ai_handle.open_directory("rules")
+        handles.append(canonical_handle)
+    except FileNotFoundError:
+        for handle in reversed(handles):
+            handle.close()
+        return [], []
+    except (OSError, ValueError, RuntimeError) as error:
+        for handle in reversed(handles):
+            handle.close()
+        return [], [
+            ValidationIssue(
+                "unsafe-canonical-path",
+                relative_root,
+                "Canonical root cannot be opened safely: {}".format(error),
+            )
+        ]
+
+    files: List[_CanonicalRuleFile] = []
+    issues: List[ValidationIssue] = []
+
+    def walk(directory: DirectoryHandle, relative_directory: str) -> None:
+        try:
+            entries = directory.list_entries()
+        except (OSError, ValueError, RuntimeError) as error:
+            issues.append(
+                ValidationIssue(
+                    "unreadable-canonical-path",
+                    relative_directory,
+                    "Canonical directory cannot be inspected: {}".format(error),
+                )
+            )
+            return
+        for entry in entries:
+            relative = "{}/{}".format(relative_directory, entry.name)
+            candidate = root / Path(relative)
+            try:
+                safe_target_path(root, relative)
+            except ValueError as error:
+                issues.append(
+                    ValidationIssue(
+                        "unsafe-canonical-path",
+                        relative,
+                        "Canonical path is unsafe: {}".format(error),
+                    )
+                )
+                continue
+            if entry.is_reparse:
+                issues.append(
+                    ValidationIssue(
+                        "unsafe-canonical-path",
+                        relative,
+                        "Canonical paths must not be links or reparse points",
+                    )
+                )
+                continue
+            if entry.is_directory:
+                try:
+                    child, _ = directory.open_directory(entry.name)
+                except (OSError, ValueError, RuntimeError) as error:
+                    issues.append(
+                        ValidationIssue(
+                            "unsafe-canonical-path",
+                            relative,
+                            "Canonical directory cannot be opened safely: {}".format(
+                                error
+                            ),
+                        )
+                    )
+                    continue
+                try:
+                    walk(child, relative)
+                finally:
+                    child.close()
+            elif entry.is_regular_file and candidate.suffix == ".md":
+                try:
+                    content = _read_utf8_regular_path(
+                        candidate,
+                        parent=directory,
+                        name=entry.name,
+                    )
+                except (OSError, UnicodeDecodeError, ValueError, RuntimeError) as error:
+                    issues.append(
+                        ValidationIssue(
+                            "unreadable-rule-file",
+                            relative,
+                            "Canonical rule file is not safe readable UTF-8: {}".format(
+                                error
+                            ),
+                        )
+                    )
+                    continue
+                files.append(_CanonicalRuleFile(candidate, content))
+
+    try:
+        walk(canonical_handle, relative_root)
+    finally:
+        for handle in reversed(handles):
+            handle.close()
+    return sorted(files, key=lambda item: _relative_path(root, item.path)), issues
 
 
 def _adapter_metadata(content: str) -> Dict[str, str]:
@@ -986,14 +1204,12 @@ def _adapter_issues(
     manifest: Dict[str, object],
     registry: Dict[str, object],
     authorized: List[Dict[str, object]],
-    canonical_files: List[Path],
+    canonical_files: List[_CanonicalRuleFile],
 ) -> List[ValidationIssue]:
     canonical_bodies: List[Tuple[str, str]] = []
-    for path in canonical_files:
-        try:
-            body = path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeDecodeError):
-            continue
+    for canonical_file in canonical_files:
+        path = canonical_file.path
+        body = canonical_file.content.strip()
         if len(body) >= 80:
             canonical_bodies.append((_relative_path(root, path), body))
 
@@ -1039,8 +1255,13 @@ def _adapter_issues(
         elif len(candidates) == 1:
             expected_registry = candidates[0]
         try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as error:
+            content = (
+                snapshot_relative(root, relative)
+                .content.decode("utf-8")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            )
+        except (OSError, UnicodeDecodeError, ValueError, RuntimeError) as error:
             issues.append(
                 ValidationIssue(
                     "unreadable-adapter-file",
@@ -1088,7 +1309,68 @@ def _adapter_issues(
     return issues
 
 
-def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[ValidationIssue]:
+def _analysis_ownership_issues(
+    root: Path,
+    manifest: Mapping[str, object],
+) -> List[ValidationIssue]:
+    ownership = manifest.get("analysis_ownership")
+    try:
+        analysis_exists = relative_exists(root, ANALYSIS_PATH)
+    except (OSError, ValueError, RuntimeError) as error:
+        return [
+            ValidationIssue(
+                "unsafe-analysis-output",
+                ANALYSIS_PATH,
+                "Analysis path cannot be inspected safely: {}".format(error),
+            )
+        ]
+    if not analysis_exists:
+        if ownership is not None:
+            return [
+                ValidationIssue(
+                    "missing-owned-analysis",
+                    ANALYSIS_PATH,
+                    "Manifest records analysis ownership but the file is absent",
+                )
+            ]
+        return []
+    if not isinstance(ownership, dict):
+        return [
+            ValidationIssue(
+                "missing-analysis-ownership",
+                ANALYSIS_PATH,
+                "Existing analysis requires Manifest analysis_ownership provenance",
+            )
+        ]
+    try:
+        actual = hashlib.sha256(
+            snapshot_relative(root, ANALYSIS_PATH).content
+        ).hexdigest()
+    except (OSError, ValueError, RuntimeError) as error:
+        return [
+            ValidationIssue(
+                "unsafe-analysis-output",
+                ANALYSIS_PATH,
+                "Analysis path cannot be read safely: {}".format(error),
+            )
+        ]
+    if actual != ownership.get("sha256"):
+        return [
+            ValidationIssue(
+                "analysis-ownership-sha256-mismatch",
+                ANALYSIS_PATH,
+                "Analysis SHA-256 does not match Manifest ownership provenance",
+            )
+        ]
+    return []
+
+
+def validate_output_tree(
+    root: Path,
+    registry: RegistryInput = None,
+    *,
+    check_analysis_ownership: bool = True,
+) -> List[ValidationIssue]:
     """Return deterministic validation issues for a generated output tree."""
     root = root.resolve(strict=False)
     manifest_path = root / MANIFEST_PATH
@@ -1096,7 +1378,11 @@ def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[Val
     try:
         manifest = load_manifest(manifest_path)
     except ValueError as error:
-        code = "missing-manifest" if not manifest_path.exists() else "invalid-manifest"
+        try:
+            manifest_exists = relative_exists(root, MANIFEST_PATH.as_posix())
+        except (OSError, ValueError, RuntimeError):
+            manifest_exists = True
+        code = "invalid-manifest" if manifest_exists else "missing-manifest"
         issues.append(ValidationIssue(code, MANIFEST_PATH.as_posix(), str(error)))
         manifest = {
             "project": {"language": "en"},
@@ -1104,6 +1390,8 @@ def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[Val
             "adapters": [],
             "confirmations": [],
         }
+    if check_analysis_ownership:
+        issues.extend(_analysis_ownership_issues(root, manifest))
 
     try:
         adapter_registry = _resolve_adapter_registry(registry)
@@ -1115,7 +1403,8 @@ def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[Val
         )
         adapter_registry = None
 
-    canonical_files = _canonical_rule_files(root)
+    canonical_files, canonical_path_issues = _canonical_rule_files(root)
+    issues.extend(canonical_path_issues)
     if not canonical_files:
         issues.append(
             ValidationIssue(
@@ -1126,17 +1415,22 @@ def validate_output_tree(root: Path, registry: RegistryInput = None) -> List[Val
         )
     seen_rule_ids: Dict[str, str] = {}
     seen_constraint_ids: Set[str] = set()
-    for path in canonical_files:
+    for canonical_file in canonical_files:
+        path = canonical_file.path
         relative = _relative_path(root, path)
-        for issue in validate_rule_file(path, manifest):
+        for issue in validate_rule_file(
+            path,
+            manifest,
+            content=canonical_file.content,
+        ):
             issues.append(ValidationIssue(issue.code, relative, issue.message))
-        try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        constraint_ids, _ = _constraint_section_rule_ids(content)
+        content = canonical_file.content
+        entries, _ = _canonical_rule_entries(_canonical_sections(content))
+        constraint_ids = [
+            entry.rule_id for entry in entries if entry.section_key == "constraints"
+        ]
         seen_constraint_ids.update(constraint_ids)
-        for rule_id in RULE_ID_PATTERN.findall(content):
+        for rule_id in (entry.rule_id for entry in entries):
             first_path = seen_rule_ids.get(rule_id)
             if first_path is not None:
                 issues.append(

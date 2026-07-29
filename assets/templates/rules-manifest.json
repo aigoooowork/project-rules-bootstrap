@@ -2,6 +2,7 @@
   "version": "1.0",
   "project": {"name": "{{PROJECT_NAME}}", "language": "{{LANGUAGE}}"},
   "scan_baseline": null,
+  "analysis_ownership": null,
   "rules": [],
   "adapters": [],
   "confirmations": []

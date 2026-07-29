@@ -193,10 +193,11 @@ If approval is absent or narrower than the plan, do not write outside the approv
 
 ### 8. Render only the approved files
 
-Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files with `scripts/render_rules.py` so every heading uses the Manifest's exact `en` or `zh-CN` language. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it. Every semantic section appears at most once. Every Manifest rule has one unique canonical `rule-id` marker immediately followed by its single list-item body. Normalize that body only by trimming and collapsing Unicode whitespace, then require an exact case- and punctuation-preserving match with Manifest `rule.text`. The authoritative headings, mandatory tokens, and normalization live in `scripts/rule_contract.py`.
+Use `.ai/rules/` as the only canonical semantic source. Render only applicable domain files with `scripts/render_rules.py` so every heading uses the Manifest's exact `en` or `zh-CN` language. Render `.ai/rules-manifest.json` to the schema and keep personal identity out of it. Every semantic section appears at most once. Every Manifest rule has one unique canonical `rule-id` marker on its own line immediately followed by its single list-item body; inline markers and markers embedded in headings are invalid and do not establish presence. Normalize that body only by trimming and collapsing Unicode whitespace, then require an exact case- and punctuation-preserving match with Manifest `rule.text`. The authoritative headings, mandatory tokens, and normalization live in `scripts/rule_contract.py`.
 
-Every `MUST`, `NEVER`, `必须`, or `禁止` instruction belongs only in the
-explicit confirmed-constraints section. Every confirmed constraint, in any
+Every `MUST`, `NEVER`, `必须`, or `禁止` instruction in either a section
+heading or its body belongs only in the explicit confirmed-constraints
+section. Every confirmed constraint, in any
 canonical domain file, has a unique rule ID, scope, reason, exception policy,
 verification, its own unique confirmation ID, user-confirmation evidence, and
 a matching confirmed record with the same scope and only that one rule ID.
@@ -221,17 +222,45 @@ Preserve existing rule files. Merge only inside clearly owned managed blocks. If
 When Python is available, apply Gate 1 and Gate 2 changes through
 `scripts/write_outputs.py`. Its analysis operation accepts only
 `.ai/rules.analysis.md`; creating it uses `create`, while updating it uses
-`replace-owned` with the exact current SHA-256. Its final operation preflights
-the exact approved path set. Every planned write is explicitly `create`,
+`replace-owned` only after the complete prior Manifest/output tree validates;
+the prior Manifest's strict `analysis_ownership` record must identify version
+`1.0`, owner `project-rules-bootstrap`, the reserved path, and the exact
+current SHA-256. A caller hash is only a concurrency precondition, not
+ownership provenance; an older Manifest without this ledger requires explicit
+migration or ownership re-confirmation. Its final operation preflights the
+exact approved path set, never writes the Gate 1 analysis path, and requires
+the final Manifest ledger to match the approved analysis bytes. Every planned write is explicitly `create`,
 `replace-owned`, or `managed-block`: `create` requires an absent path;
 `replace-owned` requires a structurally valid prior Manifest/output tree plus
 validated ownership and the exact current SHA-256; and `managed-block`
 requires the exact current file SHA-256 and exactly one ordered managed-marker
-pair. Existing Manifest and canonical files are never replaced without the
-validated prior state. Managed-block updates preserve the original UTF-8 BOM,
+pair. On initialization, a managed block additionally requires the new
+Manifest to validate against the authoritative registry and authorize that
+exact adapter path; an absent provenance object never means permissive.
+Existing Manifest and canonical files are never replaced without the
+validated prior state. Canonical roots and candidates are rejected before
+reading when they are linked, reparse-point, sensitive, or outside the root.
+Portable planned paths and every handle-relative child name reject `:` so
+Windows alternate data stream syntax cannot be written.
+All validation and write mutations use retained directory handles with
+handle-relative no-follow operations (`dir_fd`/`O_NOFOLLOW` on POSIX and
+native `RootDirectory` operations on Windows); missing required POSIX flags or
+handle-relative filesystem capabilities make the safe backend unavailable and
+fail closed. The analysis parent and file handles remain pinned until the same
+file and namespace identity are rechecked immediately before the Manifest,
+which is installed last. All writes are fully staged in same-directory temporary files,
+existing targets are atomically claimed and identity/hash checked without
+following links, and any commit failure rolls back replacements and deletes
+creates. If rollback itself fails, preserve the unrecovered backup and emit a
+root-level `.project-rules-bootstrap-recovery-*.json` path/state journal with
+no file contents. Once every planned output is installed, later backup cleanup
+failure is recoverable housekeeping: keep the committed result, retain the
+artifact, close all handles, warn, and write a content-free
+`.project-rules-bootstrap-cleanup-*.json` journal.
+Managed-block updates preserve the original UTF-8 BOM,
 newline convention, and every byte before the start marker and from the end
 marker onward. A missing, duplicate, nested, reversed, symlinked, unowned, or
-hash-mismatched target fails preflight and writes nothing.
+hash-mismatched target fails closed.
 
 ### 9. Update-specific delta
 

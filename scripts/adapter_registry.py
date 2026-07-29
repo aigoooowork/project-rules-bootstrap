@@ -75,6 +75,7 @@ def validate_relative_path(value: object, *, allow_patterns: bool, field: str) -
         path.startswith(("/", "\\"))
         or _DRIVE_PATH_PATTERN.match(path)
         or "\\" in path
+        or ":" in path
     ):
         raise ValueError("{} must be a portable relative path".format(field))
     parts = path.split("/")

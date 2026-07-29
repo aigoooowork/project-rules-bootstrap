@@ -39,7 +39,10 @@ between exactly one
 `<!-- project-rules-bootstrap:start -->` /
 `<!-- project-rules-bootstrap:end -->` pair. The approved write plan includes
 the exact current file SHA-256. On an update run, the validated prior Manifest
-must authorize that adapter path. Preserve any UTF-8 BOM, the existing LF or
-CRLF convention, both markers, and every byte outside them. Reject missing,
+must authorize that adapter path. On an initialization run, the validated new
+Manifest must match an authoritative, non-`unverified` registry entry for the
+exact adapter path and selected consumers. Missing ownership provenance never
+authorizes a managed block. Preserve any UTF-8 BOM, the existing LF or CRLF
+convention, both markers, and every byte outside them. Reject missing,
 duplicate, nested, reversed, symlinked, unowned, or hash-mismatched targets;
 never fall back to whole-file replacement.

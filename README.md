@@ -35,8 +35,25 @@ new strong constraint. Existing files are preserved unless a clearly owned
 managed block can be merged safely. An update plan labels each write
 `create`, `replace-owned`, or `managed-block`. Existing analysis, Manifest,
 canonical, or adapter content is updated only after its exact path, validated
-ownership, and current SHA-256 precondition match. Managed-block updates keep
-the UTF-8 BOM, LF/CRLF convention, and all bytes outside the markers unchanged.
+prior-tree ownership, and current SHA-256 precondition match; the hash is only
+a concurrency check, never ownership provenance. Existing analysis additionally
+requires a strict persistent Manifest ownership ledger; older manifests must be
+migrated through explicit ownership re-confirmation. Gate 2 refreshes that
+ledger to the exact approved analysis bytes. An initialization-time
+managed block requires authorization from the validated new Manifest and
+authoritative adapter registry. Validation, commit, and rollback use
+handle-relative no-follow filesystem operations on both POSIX and Windows and
+fail closed if any required safe-platform flag or handle-relative capability is
+unavailable. Portable paths reject `:` to exclude Windows alternate data
+streams. Gate 2 pins and rechecks the approved analysis through the final,
+last-installed Manifest. All approved outputs
+are staged before commit, and a commit failure restores replacements and
+removes newly created targets. A failed rollback preserves its backup and
+writes a content-free recovery journal with the artifact paths.
+After all planned outputs are installed, a later backup-cleanup failure keeps
+the committed outputs and writes a content-free cleanup journal plus warning.
+Managed-block updates keep the UTF-8 BOM, LF/CRLF convention, and all bytes
+outside the markers unchanged.
 
 See the complete stopping behavior in the
 [initialization example](docs/examples/init-example.md) and
@@ -119,12 +136,13 @@ assistants. A full plan can contain:
 Only applicable canonical domain files and selected adapters are generated.
 `.ai/rules/` is the sole canonical semantic source. Adapter files are concise
 routing entry points and do not duplicate or change canonical rules.
-Each canonical `rule-id` marker binds to its immediately following single
-list-item body; deterministic whitespace normalization must produce the exact
-Manifest `rule.text`. `MUST`, `NEVER`, `必须`, and `禁止` instructions are
-accepted only in the explicit confirmed-constraints section, with a unique
-one-rule confirmation record, matching scope, and linked confirmation
-evidence.
+Each canonical `rule-id` marker stands on its own line and binds to its
+immediately following single list-item body; inline and heading-embedded
+markers are invalid. Deterministic whitespace normalization must produce the
+exact Manifest `rule.text`. `MUST`, `NEVER`, `必须`, and `禁止` instructions
+are detected in both headings and bodies and accepted only as marker-bound
+items in the explicit confirmed-constraints section, with a unique one-rule
+confirmation record, matching scope, and linked confirmation evidence.
 `RULES.md` is the registry entry point for a selected WorkBuddy or Generic
 manual-reference adapter; it must be imported or explicitly referenced. If
 both are selected, the registry shared-output contract renders the file once,

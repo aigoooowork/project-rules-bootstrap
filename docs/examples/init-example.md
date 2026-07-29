@@ -89,7 +89,7 @@ gate.
 >
 > | Path | Mode | Pre-update condition |
 > | --- | --- | --- |
-> | `.ai/rules-manifest.json` | `create` | Path absent; no prior hash. |
+> | `.ai/rules-manifest.json` | `create` | Path absent; no prior hash; ownership ledger binds the exact Gate 1 analysis bytes. |
 > | `.ai/rules/project.md` | `create` | Path absent; no prior hash. |
 > | `.ai/rules/architecture.md` | `create` | Path absent; no prior hash. |
 > | `AGENTS.md` | `create` | Path absent; no prior hash. |
@@ -114,6 +114,8 @@ The agent stops a second time. Gate 1 approval does not imply Gate 2 approval.
 
 > Completed: wrote only the approved canonical files, Manifest, and selected
 > adapters.
+> The Manifest records the exact approved analysis SHA-256 under the fixed
+> owner, version, and reserved path.
 >
 > Pending: none.
 >

@@ -44,9 +44,11 @@ files, checking role state, and stopping at both write gates.
 > Proposed analysis path:
 > `<project-root>/.ai/rules.analysis.md`
 >
-> **Gate 1: the target tree is unchanged. The existing analysis is a regular
-> file at the exact reserved path, and its current SHA-256 is included as the
-> `replace-owned` precondition. May I update only that analysis file?**
+> **Gate 1: the target tree is unchanged. The complete prior Manifest/output
+> tree validates, and its strict `analysis_ownership` ledger identifies the
+> existing analysis by owner, version, reserved path, and exact SHA-256. The
+> caller hash is included separately as the concurrency precondition. May I
+> update only that analysis file?**
 
 The agent stops. WorkBuddy is not described as automatically loading
 `RULES.md`, and no native WorkBuddy path is invented.
@@ -59,7 +61,8 @@ The agent stops. WorkBuddy is not described as automatically loading
 
 **Agent**
 
-> Completed: verified the current SHA-256 and updated only
+> Completed: validated the complete prior Manifest/output tree, verified the
+> persistent ownership ledger and current SHA-256, and updated only
 > `.ai/rules.analysis.md`.
 >
 > The database conflict remains in the conflict section and is excluded from
@@ -103,7 +106,7 @@ The agent stops. WorkBuddy is not described as automatically loading
 > | Path | Mode | Pre-update condition |
 > | --- | --- | --- |
 > | `.codebuddy/rules/project/RULE.mdc` | `create` | Path absent; no prior hash. |
-> | `.ai/rules-manifest.json` | `replace-owned` | Prior Manifest/output tree validated; exact current SHA-256 shown. |
+> | `.ai/rules-manifest.json` | `replace-owned` | Prior Manifest/output tree validated; exact current SHA-256 shown; new ledger hash matches the Gate 1 analysis. |
 > | `.ai/rules/project.md` | `replace-owned` | Prior Manifest ownership and canonical body binding validated; exact current SHA-256 shown. |
 > | `RULES.md` | `managed-block` | Registry-authorized path, one ordered marker pair, exact current file SHA-256 shown. |
 >
@@ -122,6 +125,7 @@ approval to merge rules.
 **Agent**
 
 > Completed: wrote the approved files and validation passed.
+> The final Manifest now records the exact approved analysis SHA-256.
 >
 > Pending: the database guidance still requires a future decision.
 >
@@ -134,7 +138,11 @@ approval to merge rules.
 
 The `RULES.md` update preserves its BOM/newline convention and every byte
 outside the managed markers. Any prior-state, path, marker, symlink, or hash
-mismatch would stop the whole preflight before writing.
+mismatch would stop the whole preflight before writing. Every approved output
+is staged before commit; a later commit failure restores prior replacements
+and removes outputs newly created by that transaction. If rollback itself
+cannot restore a target, the writer retains its backup and emits a
+content-free recovery journal naming the artifact.
 
 If a later decision changes rule scope, action, exception, verification, or
 constraint strength, the semantic change requires confirmation again.

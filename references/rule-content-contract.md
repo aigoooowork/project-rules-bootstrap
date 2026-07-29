@@ -19,13 +19,15 @@ confirmed constraints apply. Do not emit an empty optional section or a domain
 file with no reliable content.
 
 Every Manifest rule needs exactly one canonical marker:
-`<!-- rule-id: <stable-id> -->`. The marker is followed by exactly one
-top-level list-item body; blank lines may separate them and indented
-continuations remain part of that one item. The validator trims and collapses
-Unicode whitespace in the body and Manifest `rule.text`, then compares them
-exactly without changing case or punctuation. It never includes a mismatched
-body in an error message. Every rule also needs a scoped, observable action
-and evidence record; conventions need confirmation. A confirmed
+`<!-- rule-id: <stable-id> -->`. The marker occupies its own line and is
+followed by exactly one top-level list-item body; blank lines may separate them
+and indented continuations remain part of that one item. Inline markers and
+markers embedded in headings are unbound occurrences: they do not establish a
+rule's presence and cause validation to fail. The validator trims and
+collapses Unicode whitespace in the body and Manifest `rule.text`, then
+compares them exactly without changing case or punctuation. It never includes
+a mismatched body in an error message. Every rule also needs a scoped,
+observable action and evidence record; conventions need confirmation. A confirmed
 constraint may appear in the applicable domain file, not only
 `restrictions.md`, but it must be inside that file's confirmed-constraints
 section. Its Manifest record must include scope, reason, exception policy,
@@ -39,9 +41,11 @@ The authoritative section vocabulary and mandatory-instruction detector live
 only in `scripts/rule_contract.py`. A semantic section may appear at most once,
 including when equivalent English and Chinese headings are mixed. English
 `MUST` and `NEVER` are case-insensitive; Chinese `必须` and `禁止` are the
-corresponding mandatory tokens. Any line containing one of these tokens is a
-strong instruction and is valid only as a marker-bound item in the explicit
-confirmed-constraints section.
+corresponding mandatory tokens. The detector scans both section headings and
+section bodies. Any occurrence is a strong instruction and is valid only as a
+marker-bound list item in the explicit confirmed-constraints section; a token
+in a heading is therefore invalid. Diagnostics identify the section safely
+without echoing an unrecognized malicious heading or rule body.
 
 Do not present generic advice as fact, unconfirmed MUST/NEVER rules, large
 source blocks, secrets, cross-domain content, vague quality slogans,
