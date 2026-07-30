@@ -261,6 +261,53 @@ class ScanProjectTests(unittest.TestCase):
                 )
             )
 
+    def test_rule_discovery_prefers_effective_chain_files_over_package_stubs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = (
+                "backend/app/runtime_services.py",
+                "backend/app/orders/res_orders.py",
+                "backend/yw_orders/__init__.py",
+                "backend/yw_orders/service.py",
+                "backend/yw_orders/repository_ops.py",
+                "backend/tests/__init__.py",
+                "backend/tests/test_orders_service.py",
+                "frontend/tests/order-flow.test.mjs",
+            )
+            for relative in paths:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# representative\n", encoding="utf-8")
+
+            result = scan_project(root, max_depth=8)
+            selected = {
+                item["path"] for item in result["rule_discovery"]["candidates"]
+            }
+
+            self.assertIn("backend/yw_orders/service.py", selected)
+            self.assertIn("backend/yw_orders/repository_ops.py", selected)
+            self.assertIn("backend/tests/test_orders_service.py", selected)
+            self.assertIn("frontend/tests/order-flow.test.mjs", selected)
+            self.assertNotIn("backend/yw_orders/__init__.py", selected)
+            self.assertNotIn("backend/tests/__init__.py", selected)
+
+    def test_scan_ignores_local_worktree_and_tool_cache_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in (
+                ".worktrees/branch/service.py",
+                ".idea/helper.py",
+                ".pytest_cache/test_cache.py",
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("SENTINEL = 'ignored'\n", encoding="utf-8")
+
+            result = scan_project(root, max_depth=8)
+
+            self.assertNotIn("SENTINEL", json.dumps(result))
+            self.assertEqual([], result["rule_discovery"]["candidates"])
+
     def test_scan_reports_sensitive_path_without_reading_value(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -23,7 +23,17 @@ SENSITIVE_NAMES = {
     "secrets.py",
     "source_win_env.py",
 }
-IGNORED_DIRS = {".git", "node_modules", "dist", "build", "__pycache__", ".venv"}
+IGNORED_DIRS = {
+    ".git",
+    ".worktrees",
+    ".idea",
+    ".pytest_cache",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".venv",
+}
 SCANNED_NAMES = {
     "package.json",
     "pyproject.toml",
@@ -48,6 +58,8 @@ MODULE_MANIFESTS = {
 SOURCE_LANGUAGES = {
     ".py": "python",
     ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".jsx": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
@@ -267,7 +279,7 @@ def _role_hints(path: Path) -> List[str]:
     if any(
         token in relative
         for token in ("service", "usecase", "use_case", "/domain/", "/business/")
-    ) or any(part.startswith("yw_") for part in parts):
+    ):
         roles.add("business")
     if any(
         token in relative
@@ -299,6 +311,8 @@ def _role_hints(path: Path) -> List[str]:
         or "__tests__" in parts
         or "spec" in parts
         or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
         or name.endswith(("_test.go", "test.java", ".spec.js", ".spec.ts"))
     ):
         roles.add("test")
@@ -329,6 +343,30 @@ def _candidate_module(root: Path, path: Path, module_roots: List[Path]) -> str:
     return relative.parts[0] if len(relative.parts) > 1 else "."
 
 
+def _candidate_quality(path: Path, roles: List[str]) -> int:
+    """Prefer effective implementation points over broad or package-only files."""
+    name = path.name.lower()
+    stem = path.stem.lower()
+    score = len(roles) * 10
+    if name in {"service.py", "repository.py", "repository_ops.py"}:
+        score += 100
+    elif name in {"views_resource.py", "routes.py", "router.js", "router.ts"}:
+        score += 90
+    elif name.startswith("res_") or name.endswith(("_handler.go", "controller.java")):
+        score += 85
+    elif any(token in stem for token in ("parser", "validation", "validator", "schema")):
+        score += 80
+    elif name in {"http.js", "http.ts", "business.js", "business.ts", "client.js", "client.ts"}:
+        score += 80
+    if "test" in roles and name not in {"__init__.py", "conftest.py"}:
+        score += 75
+    if name in {"main.py", "main.go", "app.py", "flask_run.py", "manage.py"}:
+        score += 60
+    if stem in {"runtime_services", "common", "utils", "config"}:
+        score -= 20
+    return score
+
+
 def select_rule_discovery_candidates(
     root: Path,
     files: List[Path],
@@ -341,6 +379,8 @@ def select_rule_discovery_candidates(
     for path in files:
         language = _source_language(path)
         if language is None:
+            continue
+        if path.name.lower() == "__init__.py":
             continue
         if classify_path(path) != "file" or not is_within_root(path, root):
             continue
@@ -355,6 +395,7 @@ def select_rule_discovery_candidates(
                 "selection_reason": (
                     "role-coverage" if roles else "comparable-source"
                 ),
+                "_quality": _candidate_quality(path, roles),
             }
         )
 
@@ -367,7 +408,10 @@ def select_rule_discovery_candidates(
         for role in candidate["role_hints"]
     }
     for module in sorted(by_module):
-        candidates = sorted(by_module[module], key=lambda item: str(item["path"]))
+        candidates = sorted(
+            by_module[module],
+            key=lambda item: (-int(item["_quality"]), str(item["path"])),
+        )
         module_selected: List[Dict[str, object]] = []
         covered: Set[str] = set()
         for candidate in candidates:
@@ -386,6 +430,8 @@ def select_rule_discovery_candidates(
                 module_selected.append(candidate)
                 if len(module_selected) >= max_candidates_per_module:
                     break
+        for candidate in module_selected:
+            candidate.pop("_quality", None)
         selected.extend(module_selected)
         missing = sorted(all_roles - covered)
         if missing:
