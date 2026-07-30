@@ -12,9 +12,56 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Set, Tuple
 
 
-SENSITIVE_NAMES = {".env", ".env.local", "id_rsa", "id_ed25519"}
+SENSITIVE_NAMES = {
+    ".env",
+    ".env.local",
+    ".npmrc",
+    ".pypirc",
+    "credentials.json",
+    "id_rsa",
+    "id_ed25519",
+    "secrets.py",
+    "source_win_env.py",
+}
 IGNORED_DIRS = {".git", "node_modules", "dist", "build", "__pycache__", ".venv"}
-SCANNED_NAMES = {"package.json", "pyproject.toml", "requirements.txt", "Pipfile", "manage.py"}
+SCANNED_NAMES = {
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "Pipfile",
+    "manage.py",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "go.mod",
+    "Cargo.toml",
+}
+MODULE_MANIFESTS = {
+    "package.json",
+    "pyproject.toml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "go.mod",
+    "Cargo.toml",
+}
+SOURCE_LANGUAGES = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".vue": "vue",
+    ".java": "java",
+    ".go": "go",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".rs": "rust",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".php": "php",
+}
+MAX_RULE_DISCOVERY_CANDIDATES_PER_MODULE = 12
 MAX_DIRECTORY_ENTRIES = 5000
 MAX_FILES = 2000
 MAX_FILE_BYTES = 64 * 1024
@@ -140,6 +187,12 @@ def detect_stack_signals(
             toolchains.add("python")
             for match in PYTHON_BACKEND_FRAMEWORK_PATTERN.findall(content):
                 backend.add(match.lower())
+        elif name in {"pom.xml", "build.gradle", "build.gradle.kts"}:
+            toolchains.add("java")
+        elif name == "go.mod":
+            toolchains.add("go")
+        elif name == "Cargo.toml":
+            toolchains.add("rust")
     return {
         "frontend": sorted(frontend),
         "backend": sorted(backend),
@@ -155,7 +208,7 @@ def detect_modules(
     """Return nested package/configuration roots as explicit module boundaries."""
     modules: List[Dict[str, object]] = []
     for path in files:
-        if path.name not in {"package.json", "pyproject.toml"}:
+        if path.name not in MODULE_MANIFESTS:
             continue
         if classify_path(path) != "file" or not is_within_root(path, root):
             continue
@@ -170,6 +223,181 @@ def detect_modules(
             }
         )
     return sorted(modules, key=lambda module: str(module["path"]))
+
+
+def _source_language(path: Path) -> Optional[str]:
+    return SOURCE_LANGUAGES.get(path.suffix.lower())
+
+
+def _role_hints(path: Path) -> List[str]:
+    relative = path.as_posix().lower()
+    name = path.name.lower()
+    stem = path.stem.lower()
+    parts = {part.lower() for part in path.parts}
+    roles: Set[str] = set()
+
+    if (
+        stem in {"main", "manage", "application", "app", "program"}
+        or "cmd" in parts
+        or name in {"flask_run.py", "uwsgi_app.py"}
+    ):
+        roles.add("entry")
+    if any(
+        token in relative
+        for token in (
+            "controller",
+            "handler",
+            "resource",
+            "routes",
+            "router",
+            "/views/",
+            "/view/",
+            "/pages/",
+            "/api/",
+            "/http/",
+            "res_",
+        )
+    ):
+        roles.add("interface")
+    if any(
+        token in relative
+        for token in ("parser", "schema", "validator", "validation", "dto")
+    ):
+        roles.add("validation")
+    if any(
+        token in relative
+        for token in ("service", "usecase", "use_case", "/domain/", "/business/")
+    ) or any(part.startswith("yw_") for part in parts):
+        roles.add("business")
+    if any(
+        token in relative
+        for token in (
+            "repository",
+            "/dao/",
+            "mapper",
+            "/models/",
+            "/model/",
+            "/sql/",
+        )
+    ):
+        roles.add("data")
+    if any(
+        token in relative
+        for token in (
+            "middleware",
+            "/common/",
+            "/utils/",
+            "/util/",
+            "/config/",
+            "/client/",
+        )
+    ):
+        roles.add("shared")
+    if (
+        "test" in parts
+        or "tests" in parts
+        or "__tests__" in parts
+        or "spec" in parts
+        or name.startswith("test_")
+        or name.endswith(("_test.go", "test.java", ".spec.js", ".spec.ts"))
+    ):
+        roles.add("test")
+    return sorted(roles)
+
+
+def _module_roots(root: Path, files: List[Path]) -> List[Path]:
+    roots = sorted(
+        {
+            path.parent
+            for path in files
+            if path.name in MODULE_MANIFESTS and path.parent != root
+        },
+        key=lambda path: (len(path.parts), _relative_path(root, path)),
+        reverse=True,
+    )
+    return roots
+
+
+def _candidate_module(root: Path, path: Path, module_roots: List[Path]) -> str:
+    for module_root in module_roots:
+        try:
+            path.relative_to(module_root)
+        except ValueError:
+            continue
+        return _relative_path(root, module_root)
+    relative = path.relative_to(root)
+    return relative.parts[0] if len(relative.parts) > 1 else "."
+
+
+def select_rule_discovery_candidates(
+    root: Path,
+    files: List[Path],
+    *,
+    max_candidates_per_module: int = MAX_RULE_DISCOVERY_CANDIDATES_PER_MODULE,
+) -> Dict[str, object]:
+    """Select representative source files without claiming a precise call graph."""
+    module_roots = _module_roots(root, files)
+    by_module: Dict[str, List[Dict[str, object]]] = {}
+    for path in files:
+        language = _source_language(path)
+        if language is None:
+            continue
+        if classify_path(path) != "file" or not is_within_root(path, root):
+            continue
+        roles = _role_hints(path)
+        module = _candidate_module(root, path, module_roots)
+        by_module.setdefault(module, []).append(
+            {
+                "path": _relative_path(root, path),
+                "module": module,
+                "language": language,
+                "role_hints": roles,
+                "selection_reason": (
+                    "role-coverage" if roles else "comparable-source"
+                ),
+            }
+        )
+
+    selected: List[Dict[str, object]] = []
+    uncovered_roles: Dict[str, List[str]] = {}
+    all_roles = {
+        role
+        for candidates in by_module.values()
+        for candidate in candidates
+        for role in candidate["role_hints"]
+    }
+    for module in sorted(by_module):
+        candidates = sorted(by_module[module], key=lambda item: str(item["path"]))
+        module_selected: List[Dict[str, object]] = []
+        covered: Set[str] = set()
+        for candidate in candidates:
+            new_roles = set(candidate["role_hints"]) - covered
+            if not new_roles:
+                continue
+            module_selected.append(candidate)
+            covered.update(candidate["role_hints"])
+            if len(module_selected) >= max_candidates_per_module:
+                break
+        if len(module_selected) < max_candidates_per_module:
+            selected_paths = {str(item["path"]) for item in module_selected}
+            for candidate in candidates:
+                if str(candidate["path"]) in selected_paths:
+                    continue
+                module_selected.append(candidate)
+                if len(module_selected) >= max_candidates_per_module:
+                    break
+        selected.extend(module_selected)
+        missing = sorted(all_roles - covered)
+        if missing:
+            uncovered_roles[module] = missing
+
+    return {
+        "candidates": selected,
+        "uncovered_modules": [],
+        "uncovered_roles": uncovered_roles,
+        "selection_limit_per_module": max_candidates_per_module,
+        "claim": "representative-candidates-not-a-complete-call-graph",
+    }
 
 
 def _bounded_directory_entries(
@@ -309,8 +537,11 @@ def _read_bounded_body(
     path: Path,
     max_file_bytes: int,
     remaining_bytes: int,
+    selected_paths: Optional[Set[Path]] = None,
 ) -> _BodyResult:
-    if path.name not in SCANNED_NAMES:
+    if path.name not in SCANNED_NAMES and (
+        selected_paths is None or path not in selected_paths
+    ):
         return _body_result_for_unselected(path)
     if classify_path(path) != "file" or not is_within_root(path, root):
         return _body_result_for_unselected(path)
@@ -454,6 +685,18 @@ def scan_project(
         file_budget,
         content_budget,
     )
+    rule_discovery = select_rule_discovery_candidates(
+        resolved_root,
+        collection.files,
+    )
+    candidate_by_path = {
+        str(candidate["path"]): candidate
+        for candidate in rule_discovery["candidates"]
+    }
+    selected_paths = {
+        resolved_root / Path(*relative.split("/"))
+        for relative in candidate_by_path
+    }
 
     inventory: List[Dict[str, object]] = []
     scanned_contents: Dict[Path, str] = {}
@@ -464,13 +707,14 @@ def scan_project(
             path,
             per_file_budget,
             max(0, content_budget - content_bytes_read),
+            selected_paths,
         )
         content_bytes_read += body.bytes_read
         if body.content_scanned:
             scanned_contents[path] = body.content
-        inventory.append(
-            {
-                "path": _relative_path(resolved_root, path),
+        relative_path = _relative_path(resolved_root, path)
+        inventory_record = {
+                "path": relative_path,
                 "classification": classify_path(path),
                 "content_scanned": body.content_scanned,
                 "content_status": body.status,
@@ -478,7 +722,13 @@ def scan_project(
                 "content_bytes": body.bytes_read,
                 "content_reason": body.reason,
             }
-        )
+        inventory.append(inventory_record)
+        candidate = candidate_by_path.get(relative_path)
+        if candidate is not None:
+            candidate["content_scanned"] = body.content_scanned
+            candidate["content_status"] = body.status
+            candidate["content_truncated"] = body.truncated
+            candidate["content_reason"] = body.reason
 
     content_bytes_truncated = any(
         item["content_status"] in {"truncated", "skipped"}
@@ -506,6 +756,7 @@ def scan_project(
         "modules": detect_modules(
             resolved_root, collection.files, scanned_contents
         ),
+        "rule_discovery": rule_discovery,
         "git": _git_evidence(resolved_root, int(recent_commits)),
         "limits": {
             "max_depth": depth,

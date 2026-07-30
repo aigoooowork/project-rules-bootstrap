@@ -177,6 +177,90 @@ class ScanProjectTests(unittest.TestCase):
                 [module["path"] for module in result["modules"]],
             )
 
+    def test_rule_discovery_candidates_cover_modules_roles_and_languages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            copy_fixture("code-chain-multilang", root)
+
+            result = scan_project(root, max_depth=8)
+            candidates = result["rule_discovery"]["candidates"]
+
+            self.assertTrue({"vue", "typescript", "java", "go"}.issubset(
+                {item["language"] for item in candidates}
+            ))
+            self.assertTrue(
+                {"entry", "interface", "business", "data", "test"}.issubset(
+                    {
+                        role
+                        for item in candidates
+                        for role in item["role_hints"]
+                    }
+                )
+            )
+            self.assertTrue({"frontend", "java", "go"}.issubset(
+                {item["module"] for item in candidates}
+            ))
+            self.assertEqual(
+                [],
+                result["rule_discovery"]["uncovered_modules"],
+            )
+
+    def test_rule_discovery_never_selects_sensitive_or_binary_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            copy_fixture("code-chain-multilang", root)
+            (root / ".env.local").write_text(
+                "SECRET_SENTINEL=never-read",
+                encoding="utf-8",
+            )
+            (root / "source_win_env.py").write_text(
+                'PASSWORD = "SOURCE_ENV_SENTINEL"\n',
+                encoding="utf-8",
+            )
+            (root / "go" / "internal" / "service" / "secret.key").write_bytes(
+                b"\x00\xffSECRET_SENTINEL"
+            )
+
+            result = scan_project(root, max_depth=8)
+            candidate_paths = {
+                item["path"]
+                for item in result["rule_discovery"]["candidates"]
+            }
+
+            self.assertNotIn(".env.local", candidate_paths)
+            self.assertNotIn("source_win_env.py", candidate_paths)
+            self.assertNotIn(
+                "go/internal/service/secret.key",
+                candidate_paths,
+            )
+            self.assertNotIn("never-read", json.dumps(result))
+            self.assertNotIn("SECRET_SENTINEL", json.dumps(result))
+            self.assertNotIn("SOURCE_ENV_SENTINEL", json.dumps(result))
+
+    def test_rule_discovery_distributes_candidates_across_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            copy_fixture("code-chain-multilang", root)
+
+            result = scan_project(
+                root,
+                max_depth=8,
+                max_content_bytes=1024,
+            )
+            candidates = result["rule_discovery"]["candidates"]
+            by_module = {
+                module: [item for item in candidates if item["module"] == module]
+                for module in ("frontend", "java", "go")
+            }
+
+            self.assertTrue(all(by_module.values()))
+            self.assertTrue(
+                all(
+                    any(item["content_scanned"] for item in items)
+                    for items in by_module.values()
+                )
+            )
+
     def test_scan_reports_sensitive_path_without_reading_value(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
