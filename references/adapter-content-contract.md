@@ -1,15 +1,15 @@
 # Adapter content contract
 
-## Read-only preview before Gate 1
+## Read-only adapter preview
 
-Read the selected assistants from `adapters.json` before Gate 1 and show one
+Read the selected assistants from `adapters.json` before final confirmation and show one
 preview row per selected assistant. Each row contains the adapter ID and name,
 the exact registry output path, and the registry support mode. The supported
 preview values are `native-auto`, `import-supported`, `manual-reference`, and
 `unverified`.
 
-The preview is a plan, not a write. Gate 1 blocks creation or modification of
-the analysis file; it does not hide already verified adapter metadata.
+The preview is a plan, not a write. The write confirmation blocks filesystem
+changes; it does not hide already verified adapter metadata.
 
 - CodeBuddy: `native-auto` at `.codebuddy/rules/<rule>/RULE.mdc`.
 - WorkBuddy: `manual-reference` at the root `RULES.md`; tell the user to import

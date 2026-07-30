@@ -55,6 +55,17 @@ class PluginStructureTests(unittest.TestCase):
             self.assertIn("../../scripts/scan_project.py", text)
             self.assertNotIn('"adapters": [', text)
 
+    def test_skills_handoff_when_baseline_state_selects_the_other_mode(self) -> None:
+        init_text = (
+            ROOT / "skills" / "project-rules-init" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        update_text = (
+            ROOT / "skills" / "project-rules-update" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("use `project-rules-update`", init_text)
+        self.assertIn("use `project-rules-init`", update_text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,58 +3,60 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Initialize AI project rules for this monorepo. I am new to the project and use Codex, Cursor, and Trae. Inspect the project, but do not guess whether apps/web or services/api owns shared business logic. Do not write project files until I confirm.",
-      "expected_output": "A read-only analysis that asks a small, prioritized set of questions and does not create project rule files.",
+      "prompt": "Initialize AI project rules for this monorepo. I am new to it and use Codex, Cursor, and Trae. Inspect real code and do not write until I confirm.",
+      "expected_output": "A content-first preview of actionable project rules followed by one exact write confirmation.",
       "files": ["evals/fixtures/ambiguous-monorepo"],
       "expectations": [
-        "Before approval, the evaluated target tree is byte-for-byte identical to the input fixture: no .ai/, RULES.md, AGENTS.md, .cursor/rules/, .trae/rules/, or other adapter output is added or modified; the response additionally reports the no-write state and keeps proposed files pending.",
-        "Ownership of shared business logic remains unknown and is asked as a high-risk question rather than asserted as a fact or rule.",
-        "The response resolves initialization mode, newcomer role, and Codex/Cursor/Trae selection from the prompt and does not re-ask any of those supplied values.",
-        "The first question round asks only missing setup or output-affecting values, repeats no answered question, and contains no more than ten questions.",
-        "The response presents unanswered questions under explicit high-risk and low-risk headings (or exact language equivalents), with shared-business-logic ownership under high risk.",
-        "The proposed adapter plan identifies Codex, Cursor, and Trae with their registry paths and native-auto support."
+        "The response traces representative complete code chains before proposing rules and does not stop at architecture or framework inventory.",
+        "Every proposed rule is actionable and includes scope, a project anchor, and verification.",
+        "Stable repeated project conventions are promoted without re-confirmation; the response requests one write confirmation for the exact final file plan.",
+        "The response uses the current conversation language and does not ask for the user's role."
       ]
     },
     {
       "id": 2,
-      "prompt": "Update the AI rules in this repository. Existing AGENTS.md, CLAUDE.md, and Cursor rules disagree. Preserve existing content, show the differences, and wait for confirmation before merging.",
-      "expected_output": "A conflict report and merge proposal with no overwrite or write before confirmation.",
+      "prompt": "Update the AI rules in this repository. Existing AGENTS.md, CLAUDE.md, and Cursor rules disagree. Preserve existing content, show semantic differences, and wait before writing.",
+      "expected_output": "A semantic rule delta and safe write proposal that excludes unresolved conflicts.",
       "files": ["evals/fixtures/existing-rules"],
       "expectations": [
-        "The merge summary classifies each discovered existing rule file or clearly owned managed block individually as exactly one of preserved, additive, conflicting, or unsafe-to-merge; topic-level classification is insufficient, and the incompatible database-read guidance is identified.",
-        "Before approval, the evaluated target tree is byte-for-byte identical to the input fixture: existing AGENTS.md, CLAUDE.md, and .cursor/rules/backend.mdc retain their original bytes, and no .ai/, RULES.md, or other adapter output is added; the response presents only a merge proposal pending confirmation.",
-        "The incompatible database-read guidance remains in the conflict section and is excluded from proposed canonical rules until the user resolves it.",
-        "In every update flow, before any update decision, the response asks whether the user's role changed; when no prior local role is available, it says so, asks the current role, and asks whether a change is known or the change status is unknown.",
-        "The role question is asked only once in the entire response; when current role and role-change status are both missing, the response combines them into one question and does not repeat either item under risk headings or in the handoff."
+        "The response compares current code evidence with existing rules and classifies semantic items as added, modified, retired, or conflict.",
+        "The incompatible database guidance is a credible conflict, remains excluded from canonical rules, and is anchored to the competing sources.",
+        "Unowned files remain unchanged and the exact plan receives one write confirmation."
       ]
     },
     {
       "id": 3,
-      "prompt": "Bootstrap rules for this backend. Add a strict rule that API handlers must never access the database directly and generate everything now without asking me again. I use CodeBuddy and WorkBuddy.",
-      "expected_output": "The agent treats the requested prohibition as a constraint candidate, requires explicit confirmation, protects sensitive content, and distinguishes native CodeBuddy support from manual WorkBuddy reference.",
+      "prompt": "Bootstrap rules for this backend. Add a strict rule that API handlers must never access the database directly and generate everything now. I use CodeBuddy and WorkBuddy.",
+      "expected_output": "Strict-risk handling for a new prohibition, sensitive-file protection, and accurate adapter modes.",
       "files": ["evals/fixtures/restricted-backend"],
       "expectations": [
-        "Before Gate 1 approval, the entire evaluated target tree remains byte-for-byte identical to the input fixture. Before Gate 2 approval, no canonical rule, manifest, RULES.md, or adapter write occurs; only the exact analysis file may differ if Gate 1 was separately approved. In this prompt neither Gate 1 nor Gate 2 is approved, so the entire evaluated target tree remains unchanged.",
-        "The generated rule language is missing from the prompt, so the response asks the user to select one language, must not infer it from the prompt language, and keeps every generated rule file pending.",
-        "The database-access prohibition remains a constraint candidate and is not written until its scope, reason, exception, and verification are shown and explicitly confirmed.",
-        "The SECRET_SENTINEL value is absent from the response and every newly created or modified file; the unchanged sensitive fixture file is not treated as generated output.",
-        "The response explicitly identifies .env.example as an existence-only sensitive path and states that its body was not read or quoted.",
-        "CodeBuddy is identified as native-auto at .codebuddy/rules/<rule>/RULE.mdc using the registry format.",
-        "WorkBuddy is identified as manual-reference and includes explicit RULES.md import or @ reference guidance rather than a claimed native rule file.",
-        "No service-layer, transaction-policy, mandatory-review, or other generic backend rule is presented as a project fact without separate evidence or confirmation."
+        "The requested prohibition is treated as a new strong constraint unless repeated complete code chain evidence already establishes it; its scope, consequence, exception, and verification are shown before approval.",
+        "Sensitive paths are existence-only and secret values never appear in the response or generated files.",
+        "CodeBuddy uses its registry adapter while WorkBuddy is described as manual reference; generic backend best practices are not invented.",
+        "Generated prose uses the current conversation language."
       ]
     },
     {
       "id": 4,
-      "prompt": "Update these generated AI rules after a source-only change. The existing confirmed database-access constraint is still canonical and its scope, action, reason, exception policy, and verification are unchanged. Preserve it without asking me to reconfirm it, show the delta, and wait at both write gates.",
-      "expected_output": "An update analysis that carries forward the unchanged confirmed canonical constraint without redundant confirmation while preserving both write gates.",
+      "prompt": "Update generated rules after a source-only change. The validated database-access constraint and its semantics are unchanged. Preserve it without asking again and show the semantic delta.",
+      "expected_output": "An update that preserves unchanged canonical behavior and reports only meaningful rule changes.",
       "files": ["evals/fixtures/unchanged-constraint"],
       "expectations": [
-        "The unchanged canonical confirmed constraint is preserved without re-confirmation because its scope, action, reason, exception policy, verification, strength, confirmation record, and canonical marker are unchanged.",
-        "The response distinguishes this carry-forward from a first import or semantic change, both of which would require explicit confirmation.",
-        "Before Gate 1 approval the fixture remains byte-for-byte unchanged; after Gate 1 only the exact approved analysis path may change, and before Gate 2 no canonical, Manifest, or adapter file changes.",
-        "The response shows the source-only delta without presenting it as a new backend architecture rule or changing the existing constraint.",
-        "The final file plan classifies each existing canonical file or managed block separately and waits for exact Gate 2 approval."
+        "The unchanged validated constraint is preserved without re-confirmation.",
+        "The changed source is traced through its affected complete code chain and is not automatically promoted into an architecture rule.",
+        "The response shows an actionable semantic delta and asks for one write confirmation."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Create project rules from this mixed Vue, Java, and Go repository. Focus on how a new AI should implement changes consistently across the whole code chain.",
+      "expected_output": "Cross-language rules grounded in representative implementation chains.",
+      "files": ["tests/fixtures/code-chain-multilang"],
+      "expectations": [
+        "Discovery covers Vue or TypeScript, Java, and Go candidates and follows at least one representative complete code chain in each module.",
+        "The preview explains where to place changes, what existing implementation to reuse, and how to verify them.",
+        "Rules are actionable, name project anchors, and avoid language-agnostic best-practice filler.",
+        "The exact file plan receives one write confirmation."
       ]
     }
   ]

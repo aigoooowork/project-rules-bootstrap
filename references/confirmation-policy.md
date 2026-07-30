@@ -1,33 +1,43 @@
 # Confirmation policy
 
-## Question rounds
+The normal path has one write confirmation after discovery, content preview,
+conflict handling, and the exact file plan are complete. Discovery and preview
+are read-only; do not create rule files before that approval.
 
-Present unanswered items under explicit `High-risk questions` and `Low-risk
-questions` headings, or `高风险问题` and `低风险问题` in Chinese. Show both
-headings, omit every value already answered by the user or evidence, repeat no
-question, and ask no more than ten questions in one round.
+Do not ask for the user's role. It does not improve code-style discovery.
+Generate prose in the current conversation language unless the user explicitly
+requests another language.
 
-The scanner and preview are read-only. Before Gate 1 approval, keep the entire
-target tree byte-for-byte unchanged: do not write an analysis, canonical rule,
-manifest, navigation file, or adapter. After Gate 1 approval and before Gate 2
-approval, only the exact approved analysis path may differ; keep every
-canonical rule, manifest, navigation file, adapter, and all other target files
-unchanged.
+Promote stable repeated project patterns without confirmation. The repository
+is the authority for local conventions, including consistent historical
+choices that differ from generic best practice. Do not escalate formatting,
+naming, file placement, reuse patterns, or verification commands when the
+evidence threshold in the content contract is met.
 
-- Group related, low-risk `fact` items when their evidence and scope are shown together; the user may accept or correct the group.
-- Ask for `convention` confirmation by coherent theme (for example, formatting or test layout), never as an unlabelled list of inferred rules.
-- Ask for each strong constraint individually, including scope, reason, exception, verification, and its candidate ID.
-- In update mode, preserve an already-canonical constraint only after the complete prior Manifest passes the current structural validator; the prior rule ID, text, type, scope, status, confirmation ID, confirmed decision, one-rule reference, matching confirmation scope, and linked `user-confirmation` evidence all match; and the normalized current semantics are unchanged. A caller boolean or self-reported `confirmed` status is not evidence. Missing or forged prior state, first imports, and semantic changes require a new explicit decision.
-- A user may initiate a clearly scoped batch confirmation. Restate its members and scope; do not add unrelated candidates.
-- The first write gate is explicit approval of the analysis and selected proposed files. Until then, preserve a no-write outcome.
-- The final write gate is explicit approval of the rendered rule and adapter changes after conflicts and constraints are resolved.
-- If approval is withheld, ambiguous, expired by a material change, or limited to another scope, make no write and retain candidates only in the analysis.
+## Strict-risk escalation
 
-Confirmation records have unique IDs and record timestamp, decision, scope,
-rule IDs, and batch reason when used. Every confirmed constraint names its own
-unique matching confirmation ID and includes linked `user-confirmation`
-evidence. A user-initiated batch may produce multiple constraint-specific
-records with the same batch reason; it does not reuse one confirmation ID
-across constraints. Each constraint-specific confirmed record names exactly
-one rule ID. Records do not contain a person name, email, account, or Git
-identity.
+Pause before the final preview only when a decision can materially change
+correctness or ownership:
+
+- a credible conflict between current effective sources;
+- a security or data correctness decision;
+- a new strong constraint that is requested but not already established by
+  project evidence;
+- an unsafe or unowned overwrite;
+- insufficient evidence where publishing a rule would mislead future coding.
+
+Ask the smallest concrete question that resolves the risk. Show both choices,
+their code anchors, affected scope, and practical consequence. Do not escalate
+generic best practice, personal taste, framework defaults, or a stable legacy
+pattern merely because a cleaner design exists.
+
+When a strong constraint is explicitly approved, record its scope, reason,
+exception policy, verification, and a unique confirmation ID. In update mode,
+preserve a validated unchanged constraint without re-confirmation. A changed
+scope, action, exception, verification, or strength is a new decision.
+
+If a risk remains unresolved, exclude it from canonical rules and continue
+with unaffected content when safe. Normal operation does not require a
+persistent analysis file. Strict-risk mode may propose
+`.ai/rules.analysis.md`, but it is included in the same exact final write plan
+and the same one write confirmation.

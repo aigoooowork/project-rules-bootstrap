@@ -1,133 +1,71 @@
 # Initialization example
 
-This abbreviated conversation shows an initialization session stopping at both
-write gates. Text under **Agent** is a representative shape, not a promise that
-every repository produces the same questions or files.
+This abbreviated example shows the normal content-first path. Discovery is
+read-only and the user is asked once before files are written.
 
-## Request and read-only discovery
-
-**User**
-
-> Initialize AI project rules for this monorepo. I am a project member. Use
-> Codex and Cursor. Generate the rules in Chinese. Inspect the repository, but
-> do not write anything until I approve.
-
-**Agent**
-
-> Mode and role
->
-> - Mode: initialization
-> - Role: project member
-> - Generated rule language: Chinese
->
-> Project profile
->
-> - Local evidence shows a frontend package and a backend package.
-> - Ownership of shared business logic is unresolved.
->
-> High-risk questions
->
-> 1. Which package owns shared business logic?
->
-> Low-risk questions
->
-> None.
->
-> Selected adapters and support modes
->
-> - `codex` — Codex — `AGENTS.md` — `native-auto`
-> - `cursor` — Cursor — `.cursor/rules/*.mdc` — `native-auto`
->
-> Proposed analysis path:
-> `<project-root>/.ai/rules.analysis.md`
->
-> **Gate 1: no files have been written. May I write only this analysis file?**
-
-The agent stops here. The adapter preview is read-only; it does not cross the
-gate.
-
-## Gate 1 approval
+## Request
 
 **User**
 
-> Approve Gate 1. Write only `.ai/rules.analysis.md`. Shared business logic is
-> owned by `services/core`.
+> Initialize AI project rules for this monorepo. I am new to it. Use Codex and
+> Cursor and do not write until I confirm.
+
+## Read-only discovery and content preview
 
 **Agent**
 
-> Completed: wrote `.ai/rules.analysis.md` with the confirmed ownership answer.
+> I traced three representative complete code chains instead of stopping at
+> the package layout:
 >
-> Candidate review:
+> - Web actions call feature API modules, which use the shared HTTP client;
+>   response normalization stays in that client.
+> - API handlers validate request shape, delegate business decisions to the
+>   service layer, and use repository helpers for persistence.
+> - Tests mirror the feature module and invoke the repository's checked-in test
+>   command.
 >
-> - Facts and conventions are listed with evidence and scope.
-> - No strong constraints were proposed.
-> - Unknown items remain excluded from canonical rules.
+> Proposed actionable rules
 >
-> Exact final plan
+> 1. **Add a web request**
+>    - Action: place the endpoint wrapper in the feature API module and call the
+>      shared HTTP client; do not create a second client.
+>    - Scope: new and changed web requests under `apps/web/src`.
+>    - Project anchor: `apps/web/src/api/orders.ts` and
+>      `apps/web/src/http/client.ts` use this relationship.
+>    - Verification: run the web unit command from the package manifest and the
+>      nearest feature test.
+> 2. **Change business persistence**
+>    - Action: keep request parsing in the handler, business branching in the
+>      service, and database calls in the existing repository helper.
+>    - Scope: API changes under `services/api`.
+>    - Project anchor: the create and update order chains both follow
+>      handler → service → repository and reuse the transaction wrapper.
+>    - Verification: run the matching service and repository tests.
 >
-> Create:
+> Unresolved and excluded: the two packages currently contain competing
+> ownership claims for shared business logic, so no ownership constraint will
+> be generated.
 >
-> - `.ai/rules-manifest.json`
-> - `.ai/rules/project.md`
-> - `.ai/rules/architecture.md`
-> - `AGENTS.md`
-> - `.cursor/rules/project.mdc`
+> Exact write plan
 >
-> Modify:
+> - Create canonical project, frontend, backend, and testing rules.
+> - Create the Manifest.
+> - Create Codex and Cursor adapter files from the registry.
+> - Leave all existing unowned files unchanged.
 >
-> - None
->
-> Unchanged:
->
-> - Existing unowned documentation and source files
->
-> Manual-only:
->
-> - None
->
-> Operational write plan:
->
-> | Path | Mode | Pre-update condition |
-> | --- | --- | --- |
-> | `.ai/rules-manifest.json` | `create` | Path absent; no prior hash; ownership ledger binds the exact Gate 1 analysis bytes. |
-> | `.ai/rules/project.md` | `create` | Path absent; no prior hash. |
-> | `.ai/rules/architecture.md` | `create` | Path absent; no prior hash. |
-> | `AGENTS.md` | `create` | Path absent; no prior hash. |
-> | `.cursor/rules/project.mdc` | `create` | Path absent; no prior hash. |
->
-> Conflict/merge summary:
->
-> - No existing rule files were discovered.
->
-> **Gate 2: no canonical rule, Manifest, or adapter has been written. May I
-> write exactly this plan?**
+> May I write exactly this plan?
 
-The agent stops a second time. Gate 1 approval does not imply Gate 2 approval.
+The agent does not ask for a role, language, or confirmation of the repeated
+handler/service/repository convention. It uses the conversation language.
 
-## Gate 2 approval and validation
+## Approval and validation
 
 **User**
 
-> Approve Gate 2 exactly as shown.
+> Yes, write that plan.
 
 **Agent**
 
-> Completed: wrote only the approved canonical files, Manifest, and selected
-> adapters.
-> The Manifest records the exact approved analysis SHA-256 under the fixed
-> owner, version, and reserved path.
->
-> Pending: none.
->
-> Conflict: none.
->
-> Manual-reference: none.
->
-> Unverified: none from this scan.
->
-> Validation: `python scripts/validate_outputs.py <project-root>` passed.
-
-The generated rule files are in the selected language. Adapter filenames,
-registry paths, and compatibility-level identifiers remain unchanged.
-Every canonical marker is bound to its following body and reconciled with
-Manifest `rule.text`; no existing path is overwritten by a `create` write.
+> Wrote only the approved files. Canonical rules and adapter bindings validate.
+> The unresolved ownership conflict remains excluded. No sensitive file body
+> was read.
