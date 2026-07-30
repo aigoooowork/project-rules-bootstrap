@@ -1,29 +1,33 @@
 # Rules analysis: {{PROJECT_NAME}}
 
-## Compact project profile
+## Discovery coverage
 
 - Scope: {{SCOPE}}
 
-## Confirmed facts
+## Representative complete code chains
 
-{{CONFIRMED_FACTS}}
+List the traced entry-to-verification chains and the modules they represent.
 
-## Pending conventions
+## Stable project patterns
 
-List evidence-backed themes requiring confirmation; omit when none.
+List repeated placement, reuse, contract, style, shared-impact, and
+verification patterns. Stable patterns do not require individual confirmation.
 
-## Constraint candidates
+## Proposed actionable rule recipes
 
-List each proposed strong constraint with scope and evidence; do not treat it as a rule.
+List each proposed rule's action, scope, project anchor, and verification.
 
-## Conflicts
+## Conflicts or correctness risks
 
-List incompatible sources and the decision needed; omit when none.
+List only incompatible credible sources, security/data correctness questions,
+new strong constraints, or unsafe existing-file merges. Omit when none.
 
-## Deferred low-impact questions
+## Uncovered modules and roles
 
-List only questions that do not block the selected output; omit when none.
+List skipped or truncated areas without claiming the discovery is complete.
 
 ## Proposed files
 
-List canonical domains and selected adapters. This analysis is read-only until the first write gate is approved.
+List only canonical domains with actionable content and the selected adapters.
+Normal mode previews this content in conversation and uses one write
+confirmation; persist this analysis only when strict-risk handling needs it.

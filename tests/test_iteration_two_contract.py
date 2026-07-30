@@ -7,6 +7,55 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 class IterationTwoContractTests(unittest.TestCase):
+    def test_content_contract_requires_actionable_rule_recipes(self) -> None:
+        contract = (
+            REPOSITORY_ROOT / "references" / "rule-content-contract.md"
+        ).read_text(encoding="utf-8")
+
+        for phrase in (
+            "scope",
+            "action",
+            "project anchor",
+            "verification",
+            "stack-only",
+            "generic",
+        ):
+            self.assertIn(phrase, contract.lower())
+        self.assertIn("two comparable", contract.lower())
+        self.assertIn("stable project pattern", contract.lower())
+
+    def test_every_domain_template_requires_action_anchor_and_verification(self) -> None:
+        templates = sorted(
+            (REPOSITORY_ROOT / "assets" / "templates" / "rules").glob("*.md")
+        )
+        self.assertTrue(templates)
+
+        for template in templates:
+            with self.subTest(template=template.name):
+                text = template.read_text(encoding="utf-8").lower()
+                self.assertIn("action", text)
+                self.assertIn("project anchor", text)
+                self.assertIn("verification", text)
+                self.assertIn("generic", text)
+
+    def test_code_chain_discovery_is_cross_language_and_task_oriented(self) -> None:
+        discovery = (
+            REPOSITORY_ROOT / "references" / "code-chain-discovery.md"
+        ).read_text(encoding="utf-8")
+
+        for phrase in (
+            "python",
+            "javascript",
+            "java",
+            "go",
+            "cli",
+            "complete code chain",
+            "where to place",
+            "what to reuse",
+            "how to verify",
+        ):
+            self.assertIn(phrase, discovery.lower())
+
     def test_skill_requires_explicit_risk_headings_and_a_ten_question_cap(self) -> None:
         skill = (REPOSITORY_ROOT / "SKILL.md").read_text(encoding="utf-8")
 

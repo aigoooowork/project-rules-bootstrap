@@ -56,7 +56,8 @@ REQUIRED_VALUES = (
     "RELATED_RULES",
 )
 TEMPLATE_METADATA_PATTERN = re.compile(
-    r"\A<!--\s*TEMPLATE METADATA.*?-->\s*", re.DOTALL
+    r"\A(?:(?:<!--\s*(?:TEMPLATE METADATA|RULE RECIPE CONTRACT).*?-->)\s*)+",
+    re.DOTALL,
 )
 CONDITIONAL_CONSTRAINT_PATTERN = re.compile(
     r"<!--\s*CONDITIONAL SECTION:.*?\n"
