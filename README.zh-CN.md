@@ -43,48 +43,41 @@ UTF-8 BOM、LF/CRLF 换行方式以及 marker 外的全部字节。
 完整的停写示例见[初始化示例](docs/examples/init-example.md)和
 [更新示例](docs/examples/update-example.md)。
 
-## 作为 Skill 安装
+## 作为插件安装
 
-将本仓库复制或克隆到 Agent 所使用的 Skill 目录中，并保持 `SKILL.md`、`assets/`、
-`references/` 和 `scripts/` 位于同一个 Skill 目录。对于使用 `CODEX_HOME` 的
-Codex 安装，目录结构如下：
+将本仓库作为一个 Codex 插件安装。一个安装包提供两个 Skill，同时让
+`assets/`、`references/` 和 `scripts/` 继续作为唯一共享核心：
 
 ```text
-$CODEX_HOME/
-└── skills/
-    └── project-rules-bootstrap/
-        ├── SKILL.md
-        ├── assets/
-        ├── references/
-        └── scripts/
+project-rules-bootstrap/
+├── .codex-plugin/plugin.json
+├── skills/
+│   ├── project-rules-init/SKILL.md
+│   └── project-rules-update/SKILL.md
+├── assets/
+├── references/
+└── scripts/
 ```
 
-如果 Agent 使用其他 Skill 目录，请将相同文件夹安装到对应位置。必要时重新加载
-Agent，然后让它为本地仓库初始化或更新项目规则。仅安装 Skill 不会在目标项目中
-安装、选择或加载任何 adapter；adapter 的加载方式以本文后面的 compatibility
-level 为准。
+`project-rules-init` 负责建立第一版可信规则集；`project-rules-update` 负责维护
+已经存在并通过校验的规则基线。安装插件本身不会在目标项目中安装、选择或加载
+任何 adapter；adapter 的加载方式以本文后面的 compatibility level 为准。
 
 ## 使用方法
 
-初始化时，可以在请求中直接提供已经确定的会话信息：
+项目还没有可信规则集时使用 Init：
 
 ```text
-请为这个仓库初始化 AI 项目规则。我是项目成员。
-使用 Codex、Cursor 和 Trae adapter，规则文件使用中文。
-现在只检查；每个写入关口都必须先停下来等我确认。
+请从这个仓库的现有代码模式中初始化可执行的 AI 编码规则，
+使用 Codex、Cursor 和 Trae adapter。
 ```
 
-更新时，可以说明现有规则集和当前身份：
+代码或项目惯例发生变化后使用 Update：
 
 ```text
-请更新这个仓库的 AI 项目规则。我目前是项目负责人，身份没有变化。
-请根据已保存的扫描基线比较本地变化，保留不属于 Skill 托管的文件，
-并在两个写入关口之前展示差异。
+请根据当前 Git 差异和受影响的完整代码链更新现有 AI 编码规则，
+保留不属于插件托管的文件，并展示规则语义变化。
 ```
-
-Skill 只询问仍缺失、且会影响输出的信息。所有生成的规则文件统一使用用户选择的
-`en` 或 `zh-CN`，标题也只使用该语言；不能根据用户请求所使用的语言自动推断规则
-文件语言。
 
 ## 目标项目中的生成结构
 

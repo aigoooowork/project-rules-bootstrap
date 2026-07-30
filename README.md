@@ -59,50 +59,43 @@ See the complete stopping behavior in the
 [initialization example](docs/examples/init-example.md) and
 [update example](docs/examples/update-example.md).
 
-## Install as a Skill
+## Install as a plugin
 
-Copy or clone this repository into the Skill directory used by your agent host,
-preserving `SKILL.md`, `assets/`, `references/`, and `scripts/` together. For a
-Codex installation using `CODEX_HOME`, the resulting layout is:
+Install this repository as one Codex plugin. It exposes two Skills while
+keeping `assets/`, `references/`, and `scripts/` as one shared core:
 
 ```text
-$CODEX_HOME/
-└── skills/
-    └── project-rules-bootstrap/
-        ├── SKILL.md
-        ├── assets/
-        ├── references/
-        └── scripts/
+project-rules-bootstrap/
+├── .codex-plugin/plugin.json
+├── skills/
+│   ├── project-rules-init/SKILL.md
+│   └── project-rules-update/SKILL.md
+├── assets/
+├── references/
+└── scripts/
 ```
 
-If your host uses a different Skill directory, install the same folder there.
-Reload the host if required, then ask it to initialize or update project rules
-for a local repository. Installing the Skill alone does not install, select, or
-load any target-project adapter; adapter loading follows the compatibility
-level documented below.
+`project-rules-init` creates the first trusted rule set.
+`project-rules-update` maintains a rule set that already has a validated
+project-rules-bootstrap baseline. Installing the plugin does not install,
+select, or load any target-project adapter; adapter loading follows the
+compatibility level documented below.
 
 ## Use
 
-An initialization request can provide known session choices up front:
+Use Init when a repository has no trusted generated rule set:
 
 ```text
-Initialize AI project rules for this repository. I am a project member.
-Use Codex, Cursor, and Trae adapters. Generate the rule files in Chinese.
-Inspect only; stop before writing until I approve each gate.
+Initialize actionable AI coding rules from this repository's existing code
+patterns. Use Codex, Cursor, and Trae adapters.
 ```
 
-An update request can identify the existing generated rule set:
+Use Update after code or project conventions change:
 
 ```text
-Update this repository's AI project rules. My current role is project owner
-and it has not changed. Compare the current repository with the stored scan
-baseline, preserve unowned files, and show the delta before either write gate.
+Update the existing AI coding rules from the current Git delta and affected
+code chains. Preserve unowned files and show semantic rule changes.
 ```
-
-The Skill asks only for missing setup or output-affecting information. Generated
-rule files use one language selected by the user (`en` or `zh-CN`) and render
-headings in that language only; the Skill never infers that language from the
-language of the request.
 
 ## Generated target-project structure
 

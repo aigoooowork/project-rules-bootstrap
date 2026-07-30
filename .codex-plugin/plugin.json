@@ -1,0 +1,31 @@
+{
+  "name": "project-rules-bootstrap",
+  "version": "2.0.0",
+  "description": "Discover and maintain project-specific coding rules for AI coding assistants.",
+  "author": {
+    "name": "aigoooowork"
+  },
+  "repository": "https://github.com/aigoooowork/project-rules-bootstrap",
+  "license": "Apache-2.0",
+  "keywords": [
+    "project-rules",
+    "coding-agents",
+    "onboarding"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Rules Bootstrap",
+    "shortDescription": "Discover and maintain project-specific AI coding rules",
+    "longDescription": "Two skills initialize and update actionable project rules from existing code patterns.",
+    "developerName": "aigoooowork",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Initialize AI coding rules from this repository.",
+      "Update the existing AI coding rules after code changes."
+    ]
+  }
+}
