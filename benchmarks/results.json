@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "run_date": "2026-07-31",
+  "newcomer_test": {
+    "kind": "rule-only desk test",
+    "probes_per_repository": 2,
+    "total_probes_per_tool": 10,
+    "pass_conditions": [
+      "identify the owning implementation path and at least three consecutive code-chain links",
+      "select a focused verification command from generated rules"
+    ]
+  },
+  "scanner_command": "python -m benchmarks.run_benchmark <checkouts-root> <outputs-root>",
+  "rubric": {
+    "accuracy": {"5": "all material claims anchored; no contradiction", "4": "one minor imprecision", "3": "core stack and commands mostly correct, with unsupported policy", "2": "material misclassification or multiple unsupported claims", "1": "wrong primary type or mostly unusable", "0": "no usable output"},
+    "complete_code_chain": {"5": "three or more consecutive verified symbols plus files/tests", "4": "complete chain with one weak link", "3": "partial two-link chain", "2": "symbol inventory only", "1": "directories only", "0": "no chain"},
+    "executability": {"5": "exact focused and full commands verified in pinned config", "4": "exact focused command, broader gates incomplete", "3": "real broad commands only", "2": "generic or unverified commands", "1": "wrong commands", "0": "no command or output"}
+  },
+  "scanner_snapshot": {
+    "scanner_limits": {"max_depth": 10, "max_entries": 30000, "max_files": 12000, "max_file_bytes": 65536, "max_content_bytes": 4194304},
+    "projects": {
+      "pinia": {"elapsed_ms": 104.017, "scan_complete": true, "files_seen": 331, "modules_detected": 9, "candidate_count": 83, "candidate_modules": 11, "content_bytes_read": 221116, "active_limits": [], "rule_files": 1, "grounded_rule_files": 1, "existing_path_anchors": 5, "candidate_symbol_anchors": 5, "verified_symbol_anchors": 5, "scanner_anchor_coverage": 0.0, "complete_chain_signals": 1, "verification_command_candidates": 3, "quality_issues": []},
+      "react-hook-form": {"elapsed_ms": 130.242, "scan_complete": true, "files_seen": 494, "modules_detected": 2, "candidate_count": 74, "candidate_modules": 7, "content_bytes_read": 282061, "active_limits": [], "rule_files": 1, "grounded_rule_files": 1, "existing_path_anchors": 4, "candidate_symbol_anchors": 4, "verified_symbol_anchors": 4, "scanner_anchor_coverage": 0.0, "complete_chain_signals": 1, "verification_command_candidates": 4, "quality_issues": []},
+      "fastapi": {"elapsed_ms": 528.694, "scan_complete": false, "files_seen": 3137, "modules_detected": 0, "candidate_count": 51, "candidate_modules": 5, "content_bytes_read": 231238, "active_limits": ["content_bytes_truncated"], "rule_files": 1, "grounded_rule_files": 1, "existing_path_anchors": 6, "candidate_symbol_anchors": 8, "verified_symbol_anchors": 8, "scanner_anchor_coverage": 0.167, "complete_chain_signals": 1, "verification_command_candidates": 4, "quality_issues": []},
+      "gin": {"elapsed_ms": 31.471, "scan_complete": false, "files_seen": 130, "modules_detected": 0, "candidate_count": 48, "candidate_modules": 7, "content_bytes_read": 316191, "active_limits": ["content_bytes_truncated"], "rule_files": 1, "grounded_rule_files": 1, "existing_path_anchors": 8, "candidate_symbol_anchors": 7, "verified_symbol_anchors": 7, "scanner_anchor_coverage": 0.5, "complete_chain_signals": 1, "verification_command_candidates": 3, "quality_issues": []},
+      "spring-petclinic": {"elapsed_ms": 37.13, "scan_complete": true, "files_seen": 131, "modules_detected": 0, "candidate_count": 12, "candidate_modules": 1, "content_bytes_read": 81219, "active_limits": [], "rule_files": 1, "grounded_rule_files": 1, "existing_path_anchors": 4, "candidate_symbol_anchors": 7, "verified_symbol_anchors": 7, "scanner_anchor_coverage": 0.5, "complete_chain_signals": 1, "verification_command_candidates": 3, "quality_issues": []}
+    }
+  },
+  "tools": {
+    "project-rules-bootstrap": {
+      "coverage": "5/5",
+      "aggregate": {
+        "accuracy_0_to_5": 5.0,
+        "complete_code_chain_0_to_5": 5.0,
+        "executability_0_to_5": 5.0,
+        "grounding_gate_passes": 5,
+        "unsupported_policy_findings": 0,
+        "newcomer_probes_passed": 10
+      },
+      "projects": {
+        "pinia": {"accuracy": 5, "chain": 5, "executability": 5, "rationale": "All claims and five symbols verify; defineStore-to-active-Pinia chain is explicit; focused store.spec.ts and full scripts exist.", "newcomer_probes": 2, "lines": 23, "existing_paths": 5, "verified_symbols": 5, "chains": 1, "verification_commands": 3, "grounded": true, "sha256": "c86c43f775a90ef1295185f68eb9be4d373fbced4443d74257580f796c11bd9d"},
+        "react-hook-form": {"accuracy": 5, "chain": 5, "executability": 5, "rationale": "All claims and four symbols verify; submission chain is explicit; focused useForm and full repository commands exist.", "newcomer_probes": 2, "lines": 23, "existing_paths": 4, "verified_symbols": 4, "chains": 1, "verification_commands": 4, "grounded": true, "sha256": "c8f9cc3e3feb4cce493d13adee17096934e299f688c2005e83ed43c1d77cf5b1"},
+        "fastapi": {"accuracy": 5, "chain": 5, "executability": 5, "rationale": "All claims and eight symbols verify; registration-to-serialization chain is explicit; test_route_scope.py and configured full gates exist.", "newcomer_probes": 2, "lines": 23, "existing_paths": 6, "verified_symbols": 8, "chains": 1, "verification_commands": 4, "grounded": true, "sha256": "a80ed1fc63adabdc6d391768f87533cbe5bb7cf6225ce5ef8a545e276c9c57c6"},
+        "gin": {"accuracy": 5, "chain": 5, "executability": 5, "rationale": "All claims and seven symbols verify; registration-to-Context.Next chain is explicit; exact TestRouterGroupRouteOK and Make gates exist.", "newcomer_probes": 2, "lines": 23, "existing_paths": 8, "verified_symbols": 7, "chains": 1, "verification_commands": 3, "grounded": true, "sha256": "9c641b0121226aeb8b48cff3a3ecc5315dd02db02efce138b27805adc7e62a5b"},
+        "spring-petclinic": {"accuracy": 5, "chain": 5, "executability": 5, "rationale": "All claims and seven symbols verify; owner search web-to-repository chain is explicit; exact test classes and Maven gates exist.", "newcomer_probes": 2, "lines": 23, "existing_paths": 4, "verified_symbols": 7, "chains": 1, "verification_commands": 3, "grounded": true, "sha256": "b3a65589549d05348e1c946973faf4ffaced4271e1be360bc50e46ddc648bc92"}
+      }
+    },
+    "agents-md-generator": {
+      "commit": "e26d5675b30851dc15b027be7560b6fbc2173e8e",
+      "coverage": "5/5",
+      "aggregate": {
+        "accuracy_0_to_5": 2.6,
+        "complete_code_chain_0_to_5": 0.0,
+        "executability_0_to_5": 2.8,
+        "grounding_gate_passes": 0,
+        "unsupported_policy_findings_minimum": 45,
+        "newcomer_probes_passed": 0,
+        "finding_categories": ["foreign global Codex repair", "foreign workspace boundary", "foreign response language", "foreign global-rule-overrides path", "foreign comment policy", "foreign formatting policy", "foreign filename policy", "foreign language-skill routing", "foreign output-prefix policy"]
+      },
+      "projects": {
+        "pinia": {"accuracy": 3, "chain": 0, "executability": 3, "rationale": "Stack and broad commands are useful, but foreign policy and missing paths remain; no source-verified chain or focused command.", "newcomer_probes": 0, "lines": 58, "existing_paths": 8, "missing_paths": 3, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "e1dc64353b4e72be7b1054e235aa2f27488d8367fbb6c19b12b3f48ead6e41bc"},
+        "react-hook-form": {"accuracy": 3, "chain": 0, "executability": 3, "rationale": "Stack and broad commands are useful, but foreign policy and missing paths remain; no source-verified chain or focused command.", "newcomer_probes": 0, "lines": 70, "existing_paths": 14, "missing_paths": 3, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "f6aa3d17ccd5be521d8af6616d415d12194a85b0447e4156d759082ea6414d78"},
+        "fastapi": {"accuracy": 3, "chain": 0, "executability": 3, "rationale": "Python stack and broad commands are useful, but foreign policy and missing paths remain; no source-verified routing chain.", "newcomer_probes": 0, "lines": 70, "existing_paths": 14, "missing_paths": 3, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "e111beb127caab83c25d3acd22a3a9871794764fa8d9bff3ca7cdb27eb1839e0"},
+        "gin": {"accuracy": 3, "chain": 0, "executability": 3, "rationale": "Go stack and broad commands are useful, but foreign policy and missing paths remain; no source-verified dispatch chain.", "newcomer_probes": 0, "lines": 58, "existing_paths": 5, "missing_paths": 3, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "824005cb05388160f3f55908e9c0d0a7781e81b8f19557e728acaf05694bf1da"},
+        "spring-petclinic": {"accuracy": 1, "chain": 0, "executability": 2, "rationale": "Primary language is misclassified as script; generic commands are not focused, and no implementation chain is present.", "newcomer_probes": 0, "lines": 50, "existing_paths": 5, "missing_paths": 3, "verified_symbols": 0, "chains": 0, "grounded": false, "detected_primary_language": "script", "sha256": "c499c2f8334617e6e0de95610546de03664d6309d08e88f364e45ed288ef59b1"}
+      }
+    },
+    "agent-rules-skill": {
+      "commit": "7a8185e8f5b0d3244f48cf330eb94b54c346e073",
+      "coverage": "4/5",
+      "aggregate": {
+        "accuracy_0_to_5": 1.6,
+        "complete_code_chain_0_to_5": 0.0,
+        "executability_0_to_5": 1.6,
+        "grounding_gate_passes": 0,
+        "unsupported_policy_findings_minimum": 60,
+        "newcomer_probes_passed": 0,
+        "finding_categories": ["atomic commit mandate", "pasted test-output mandate", "local cache path policy", "full-suite dependency mandate", "force-push policy", "dependency approval gate", "CI approval gate", "public-API approval gate", "E2E approval gate", "repo-wide refactor gate", "multi-repository gate", "direct-main prohibition", "review-thread merge gate", "review-reply format policy", "migration deletion prohibition"]
+      },
+      "projects": {
+        "pinia": {"accuracy": 2, "chain": 0, "executability": 2, "rationale": "No valid project paths or symbols support the output; commands and governance are generic and unverified.", "newcomer_probes": 0, "lines": 113, "existing_paths": 0, "missing_paths": 2, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "e59fd5f103eefbebe9dd364b36bd4bbb0660157d7e2aa7af3ca5f70ec427f4ba"},
+        "react-hook-form": {"accuracy": 2, "chain": 0, "executability": 2, "rationale": "Some paths exist, but unsupported workflow policy and missing anchors are material; commands remain generic and no chain exists.", "newcomer_probes": 0, "lines": 137, "existing_paths": 3, "missing_paths": 4, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "9b4bc61fadcc065af9bc52f909e984e604c0e675721f6fef6cba471a2d5796a7"},
+        "fastapi": {"accuracy": 1, "chain": 0, "executability": 1, "rationale": "FastAPI is misclassified as Flask; commands and paths conflict with the pinned project and no routing chain exists.", "newcomer_probes": 0, "lines": 128, "existing_paths": 3, "missing_paths": 5, "verified_symbols": 0, "chains": 0, "grounded": false, "detected_framework": "flask", "sha256": "d1c41f8f0f39a23a5d457e8fc0762614e3c000d72967cf7bbece9267393cb8ad"},
+        "gin": {"accuracy": 3, "chain": 0, "executability": 3, "rationale": "Go project type and broad commands are usable, but unsupported policy and missing paths remain; no source-verified chain exists.", "newcomer_probes": 0, "lines": 142, "existing_paths": 2, "missing_paths": 4, "verified_symbols": 0, "chains": 0, "grounded": false, "sha256": "3b46a85fe6afecec34c069066a47612da112ce5c87775d9cf05dee3b9de37b6a"},
+        "spring-petclinic": {"accuracy": 0, "chain": 0, "executability": 0, "rationale": "Generation failed, so there are no claims, chain, or commands to evaluate.", "newcomer_probes": 0, "generated": false, "error": "Could not detect project language"}
+      }
+    }
+  }
+}

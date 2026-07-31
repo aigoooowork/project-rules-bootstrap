@@ -1,9 +1,3 @@
-<!-- adapter-id: codex -->
-<!-- adapter-support: native-auto -->
-<!-- adapter-scope: repository -->
-<!-- adapter-loading: native -->
-<!-- adapter-consumers: codex -->
-<!-- TEMPLATE METADATA — renderer MUST preserve the adapter metadata comments and remove this instruction. -->
-# Canonical rule routing
+# Project rule routing
 
-Read `.ai/rules/project.md` first, then load only task-relevant canonical domain files. This adapter adds no project rules.
+Read `.ai/rules/index.md`, then load only the canonical rule groups relevant to the current change.

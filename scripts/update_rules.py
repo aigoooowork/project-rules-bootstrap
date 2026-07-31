@@ -1,56 +1,51 @@
-"""Deterministic update decisions for previously confirmed constraints."""
+"""Deterministic update decisions for explicitly confirmed constraints."""
 
+import hashlib
 from typing import Mapping, Optional
 
-from scripts.validate_outputs import (
-    _constraint_record_issues,
-    _rule_records,
-    validate_manifest_data,
-)
+from scripts.manifest import confirmed_constraints, validate_manifest_data
 
 
-CONSTRAINT_SEMANTIC_FIELDS = (
-    "id",
-    "domain",
-    "type",
-    "status",
-    "scope",
-    "text",
-    "confidence",
-    "reason",
-    "exception_policy",
-    "verification",
-    "confirmation_id",
-)
+CURRENT_TO_CONFIRMATION_FIELDS = {
+    "scope": "scope",
+    "reason": "reason",
+    "exception_policy": "exception_policy",
+    "verification": "verification",
+}
 
 
-def _semantic_value(value: object) -> object:
-    if isinstance(value, str):
-        return " ".join(value.split())
-    return value
+def _normalized_text(value: object) -> str:
+    return " ".join(value.split()) if isinstance(value, str) else ""
+
+
+def _text_sha256(value: object) -> str:
+    return hashlib.sha256(_normalized_text(value).encode("utf-8")).hexdigest()
 
 
 def requires_constraint_confirmation(
     prior_manifest: Optional[Mapping[str, object]],
     current_rule: Mapping[str, object],
 ) -> bool:
-    """Return whether an update needs a new explicit constraint decision."""
-    if prior_manifest is None:
+    """Return whether a current strong constraint needs an explicit decision."""
+    if prior_manifest is None or current_rule.get("type") != "constraint":
         return True
+    rule_id = _normalized_text(current_rule.get("id"))
+    if not rule_id:
+        return True
+    for field in ("scope", "text", "reason", "exception_policy", "verification"):
+        if not _normalized_text(current_rule.get(field)):
+            return True
     try:
-        validated_manifest = validate_manifest_data(dict(prior_manifest))
+        validated = validate_manifest_data(dict(prior_manifest))
     except ValueError:
         return True
-    rule_id = current_rule.get("id")
-    if not isinstance(rule_id, str) or not rule_id:
+    previous = confirmed_constraints(validated).get(rule_id)
+    if previous is None:
         return True
-    previous_rule = _rule_records(validated_manifest).get(rule_id)
-    if previous_rule is None or current_rule.get("type") != "constraint":
-        return True
-    if _constraint_record_issues(rule_id, "prior Manifest", validated_manifest):
+    if previous.get("text_sha256") != _text_sha256(current_rule.get("text")):
         return True
     return any(
-        _semantic_value(previous_rule.get(field))
-        != _semantic_value(current_rule.get(field))
-        for field in CONSTRAINT_SEMANTIC_FIELDS
+        _normalized_text(previous.get(record_field))
+        != _normalized_text(current_rule.get(current_field))
+        for current_field, record_field in CURRENT_TO_CONFIRMATION_FIELDS.items()
     )

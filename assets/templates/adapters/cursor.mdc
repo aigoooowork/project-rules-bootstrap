@@ -3,11 +3,5 @@ description: Route tasks to canonical project rule files.
 globs: "**/*"
 alwaysApply: true
 ---
-<!-- adapter-id: cursor -->
-<!-- adapter-support: native-auto -->
-<!-- adapter-scope: glob -->
-<!-- adapter-loading: native -->
-<!-- adapter-consumers: cursor -->
-<!-- TEMPLATE METADATA — renderer MUST preserve adapter metadata and vendor frontmatter; remove this instruction. -->
 
-Read `.ai/rules/project.md`, then load only applicable domain files. This adapter adds no project rules.
+Read `.ai/rules/index.md`, then load only the canonical rule groups relevant to the current change.

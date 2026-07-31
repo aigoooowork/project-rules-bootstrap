@@ -1,98 +1,96 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
-import scripts.safe_fs as safe_fs
-
-
-def fake_posix_os(*, missing_flag: str = "", missing_capability: str = "") -> object:
-    def forbidden_open(*args: object, **kwargs: object) -> int:
-        raise RuntimeError("unsafe path open attempted")
-
-    def placeholder(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    fake = SimpleNamespace(
-        name="posix",
-        O_RDONLY=0,
-        O_CLOEXEC=0,
-        O_WRONLY=1,
-        O_CREAT=2,
-        O_EXCL=4,
-        open=forbidden_open,
-        stat=placeholder,
-        mkdir=placeholder,
-        unlink=placeholder,
-        rmdir=placeholder,
-        rename=placeholder,
-        link=placeholder,
-        scandir=placeholder,
-    )
-    if missing_flag != "O_NOFOLLOW":
-        fake.O_NOFOLLOW = 8
-    if missing_flag != "O_DIRECTORY":
-        fake.O_DIRECTORY = 16
-    fake.supports_dir_fd = {
-        fake.open,
-        fake.stat,
-        fake.mkdir,
-        fake.unlink,
-        fake.rmdir,
-        fake.rename,
-        fake.link,
-    }
-    fake.supports_fd = {fake.scandir}
-    capability = getattr(fake, missing_capability, None)
-    if capability is not None:
-        if capability in fake.supports_dir_fd:
-            fake.supports_dir_fd.remove(capability)
-        if capability in fake.supports_fd:
-            fake.supports_fd.remove(capability)
-    return fake
+from tests.test_output_workflow import manifest_content, writer_api
 
 
 class SafeFilesystemTests(unittest.TestCase):
-    def test_posix_backend_fails_closed_when_any_required_capability_is_missing(
-        self,
-    ) -> None:
-        cases = (
-            ("O_NOFOLLOW", ""),
-            ("O_DIRECTORY", ""),
-            ("", "open"),
-            ("", "rename"),
-            ("", "scandir"),
-        )
-        for missing_flag, missing_capability in cases:
-            with self.subTest(
-                flag=missing_flag,
-                capability=missing_capability,
-            ), patch.object(
-                safe_fs,
-                "os",
-                fake_posix_os(
-                    missing_flag=missing_flag,
-                    missing_capability=missing_capability,
-                ),
-            ), tempfile.TemporaryDirectory() as directory:
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "safe POSIX handle-relative filesystem backend is unavailable",
-                ):
-                    safe_fs.DirectoryHandle.open_root(Path(directory))
+    def test_rejects_unsafe_or_sensitive_paths_before_writing(self) -> None:
+        PlannedWrite, apply_outputs = writer_api(self)
 
-    def test_handle_relative_child_names_reject_windows_ads_syntax(self) -> None:
+        for unsafe in (
+            "../outside.md",
+            "/tmp/outside.md",
+            "C:/outside.md",
+            "nested\\outside.md",
+            ".env",
+            "config/secrets.json",
+        ):
+            with self.subTest(path=unsafe), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                with self.assertRaises(ValueError):
+                    apply_outputs(root, [PlannedWrite(unsafe, "x", "create")])
+                self.assertEqual([], list(root.rglob("*")))
+
+    def test_rejects_symlink_parent_or_target(self) -> None:
+        PlannedWrite, apply_outputs = writer_api(self)
+
         with tempfile.TemporaryDirectory() as directory:
-            with safe_fs.DirectoryHandle.open_root(Path(directory)) as root:
-                for child_name in (
-                    "file.txt:secret",
-                    "directory:stream",
-                    ":hidden",
-                ):
-                    with self.subTest(name=child_name):
-                        with self.assertRaises(ValueError):
-                            root.exists(child_name)
+            root = Path(directory)
+            outside = root / "outside"
+            outside.mkdir()
+            (root / "linked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                apply_outputs(root, [PlannedWrite("linked/rules.md", "x", "create")])
+            self.assertFalse((outside / "rules.md").exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside.md"
+            outside.write_text("outside", encoding="utf-8")
+            (root / "AGENTS.md").symlink_to(outside)
+            with self.assertRaises(ValueError):
+                apply_outputs(root, [PlannedWrite("AGENTS.md", "x", "create")])
+            self.assertEqual("outside", outside.read_text())
+
+    def test_duplicate_targets_and_invalid_manifest_fail_without_staging_files(self) -> None:
+        PlannedWrite, apply_outputs = writer_api(self)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            duplicate = [
+                PlannedWrite(".ai/rules/index.md", "one", "create"),
+                PlannedWrite(".ai/rules/index.md", "two", "create"),
+            ]
+            with self.assertRaises(ValueError):
+                apply_outputs(root, duplicate)
+            self.assertEqual([], list(root.rglob("*")))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = "# Rules\n"
+            mismatched_manifest = manifest_content(
+                {".ai/rules/index.md": ("different", "canonical", None)}
+            )
+            writes = [
+                PlannedWrite(".ai/rules/index.md", canonical, "create"),
+                PlannedWrite(
+                    ".ai/rules-manifest.json", mismatched_manifest, "create"
+                ),
+            ]
+            with self.assertRaisesRegex(ValueError, "manifest hash"):
+                apply_outputs(root, writes)
+            self.assertEqual([], list(root.rglob("*")))
+
+    def test_manifest_content_must_be_valid_v2_json(self) -> None:
+        PlannedWrite, apply_outputs = writer_api(self)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(ValueError):
+                apply_outputs(
+                    root,
+                    [
+                        PlannedWrite(
+                            ".ai/rules-manifest.json",
+                            json.dumps({"version": "1.0"}),
+                            "create",
+                        )
+                    ],
+                )
+            self.assertEqual([], list(root.rglob("*")))
 
 
 if __name__ == "__main__":

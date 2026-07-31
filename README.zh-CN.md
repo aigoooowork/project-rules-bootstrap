@@ -2,174 +2,91 @@
 
 [English](README.md)
 
-Project Rules Bootstrap 是一个面向智能编码 Agent 的 Skill，用于根据现有仓库中的
-证据，生成可审阅的 AI 编码规则。它适合需要维护统一规则源的项目负责人、维护者、
-项目成员和新加入者，并能为实际使用的编码助手生成精简入口。
+Project Rules Bootstrap 用于从现有仓库的真实代码中生成可执行的 AI 编码规则，
+包含两个 Skill：
 
-这两个 Skill 不会把目录结构、缺少某个文件或通用工程经验直接当成项目规则。
-它们会读取代表性代码正文，追踪完整代码链，对比重复实现，再把稳定的项目写法
-转成新 AI 可以直接执行的规则。
+- `project-rules-init`：建立第一版可信规则；
+- `project-rules-update`：代码变化后更新已经通过校验的 v2 规则集。
 
-## 安全与确认机制
+最终规则不是技术栈简介。Skill 会读取真实代码正文，追踪完整调用链，对比重复
+实现，并明确告诉新 AI：改动应该放在哪里、应复用哪个现有实现、会经过哪些边界
+和数据流、影响哪些调用方，以及如何使用项目已有命令验证。
 
-发现阶段只读。此时 Skill 不执行目标项目代码、测试、构建、钩子或包脚本，不安装
-依赖、不拉取远程内容、不读取敏感文件正文，也不会跟随指向项目根目录之外的符号
-链接。敏感路径只记录“存在”这一事实。
+## 核心流程
 
-普通流程只有一次写入确认。确认前，Skill 会展示可执行规则正文、未解决风险、
-所选 adapter，以及准确的 Create、Modify、Unchanged、Manual-only 计划。项目中
-稳定重复的惯例直接作为规则，不再要求用户确认项目自己的既有风格。只有真实冲突、
-安全或数据正确性、新增强约束、证据不足会误导后续开发、以及不安全写入才需要询问。
+1. 只读扫描仓库，不执行目标项目代码；
+2. 为每个主要模块追踪有代表性的完整代码链；
+3. 将稳定证据整理为包含 Action、Scope、Project anchor、Verification 的规则；
+4. 只对会影响结果的模糊点和冲突渐进式提问；
+5. 每条新增或发生语义变化的强约束单独确认；
+6. 展示完整规则和准确文件计划，再进行一次最终写入确认；
+7. 只写入已授权路径，最后安装精简 Manifest，并校验全部输出。
 
-除非能确认某段内容属于可安全合并的托管区块，否则保留已有文件不变。修改已有
-文件必须同时满足所有权校验和当前 SHA-256 前置条件。全部获批输出先暂存，
-Manifest 最后安装；提交失败会恢复替换项并删除本次新建项。托管区块更新会保留
-UTF-8 BOM、LF/CRLF 换行方式、marker 以及 marker 外的全部字节。
+敏感文件只记录“存在”，不读取内容。路径穿越、敏感输出路径、符号链接、所有权
+哈希不一致和覆盖未托管文件都会被拒绝。已有但不属于本插件的助手规则文件保持
+不变，并标记为 `manual-only`。已退休的生成文件只能通过精确哈希保护的
+`delete-owned` 计划删除。Skill 不生成或保留 `.ai/rules.analysis.md`。
 
-完整的停写示例见[初始化示例](docs/examples/init-example.md)和
-[更新示例](docs/examples/update-example.md)。
+## 生成结构
 
-## 作为插件安装
-
-将本仓库作为一个 Codex 插件安装。一个安装包提供两个 Skill，同时让
-`assets/`、`references/` 和 `scripts/` 继续作为唯一共享核心：
-
-```text
-project-rules-bootstrap/
-├── .codex-plugin/plugin.json
-├── skills/
-│   ├── project-rules-init/SKILL.md
-│   └── project-rules-update/SKILL.md
-├── assets/
-├── references/
-└── scripts/
-```
-
-`project-rules-init` 负责建立第一版可信规则集；`project-rules-update` 负责维护
-已经存在并通过校验的规则基线。安装插件本身不会在目标项目中安装、选择或加载
-任何 adapter；adapter 的加载方式以本文后面的 compatibility level 为准。
-
-## 使用方法
-
-项目还没有可信规则集时使用 Init：
-
-```text
-请从这个仓库的现有代码模式中初始化可执行的 AI 编码规则，
-使用 Codex、Cursor 和 Trae adapter。
-```
-
-代码或项目惯例发生变化后使用 Update：
-
-```text
-请根据当前 Git 差异和受影响的完整代码链更新现有 AI 编码规则，
-保留不属于插件托管的文件，并展示规则语义变化。
-```
-
-## 目标项目中的生成结构
-
-准确输出由代码证据、适用规则域和所选编码助手共同决定。完整计划可能包含：
+规则按项目实际关注点分组，不强制生成固定十类文件：
 
 ```text
 <target-project>/
 ├── .ai/
-│   ├── rules.analysis.md  （仅严格风险模式可选）
 │   ├── rules-manifest.json
 │   └── rules/
-│       ├── project.md
-│       ├── architecture.md
-│       ├── coding-style.md
-│       ├── frontend.md
-│       ├── backend.md
-│       ├── api.md
-│       ├── database.md
-│       ├── testing.md
-│       ├── security.md
-│       └── restrictions.md
+│       ├── index.md
+│       ├── <实际规则分组>.md
+│       └── <其他实际分组>.md
 ├── AGENTS.md
 ├── CLAUDE.md
-├── .cursor/rules/<rule>.mdc
-├── .trae/rules/<rule>.md
-├── .codebuddy/rules/<rule>/RULE.mdc
+├── .cursor/rules/project-rules.mdc
+├── .trae/rules/project-rules.md
+├── .codebuddy/rules/project-rules/RULE.mdc
 └── RULES.md
 ```
 
-只生成实际适用的 canonical 规则文件和用户选中的 adapter。`.ai/rules/` 是唯一的
-canonical 语义来源；adapter 只负责精简地指向相关规则，不复制或改变规则语义。
-每个 canonical `rule-id` marker 必须独占一行，并与其紧随的单条列表正文绑定；
-行内 marker 或嵌入标题的 marker 无效。仅折叠确定性的空白后，正文必须与
-Manifest `rule.text` 精确一致。标题和正文中的 `MUST`、`NEVER`、`必须`、`禁止`
-都会被检测；这些指令只能作为 marker 绑定项出现在明确的“已确认的强约束”
-section 中，并且必须有唯一的单规则确认记录、相同 scope 和关联确认 evidence。
-`RULES.md` 是所选 WorkBuddy 或 Generic `manual-reference` adapter 的登记入口，
-必须由用户导入或显式引用。如果两者同时选中，registry 的 shared-output 契约只
-渲染一次该文件，以 WorkBuddy 为具体 owner，并在一个 Manifest adapter 记录中
-列出两个 consumer。
+`.ai/rules/` 是唯一规则语义来源。`index.md` 只列出实际生成的规则分组；adapter
+只负责跳转，不复制或改变规则。
 
-## 工具兼容性
+v2 Manifest 仅保存项目/扫描来源、托管文件路径与哈希，以及已明确确认的强约束。
+它不保存分析过程、普通规则正文、共享 consumer 元数据或第二份规则账本。
 
-兼容性结论原样来自
-[`references/adapters.json`](references/adapters.json)，不会根据经验推断。
+## Adapter
 
-| Adapter ID | 工具 | Registry 中的准确路径 | Compatibility level |
+| ID | 工具 | 输出路径 | 支持方式 |
 | --- | --- | --- | --- |
-| `codex` | Codex | `AGENTS.md` | `native-auto` |
-| `claude-code` | Claude Code | `CLAUDE.md` | `native-auto` |
-| `cursor` | Cursor | `.cursor/rules/*.mdc` | `native-auto` |
-| `trae` | Trae | `.trae/rules/*.md` | `native-auto` |
-| `codebuddy` | CodeBuddy | `.codebuddy/rules/<rule>/RULE.mdc` | `native-auto` |
-| `workbuddy` | WorkBuddy | `RULES.md` | `manual-reference` |
-| `generic` | Generic | `RULES.md` | `manual-reference` |
+| `codex` | Codex | `AGENTS.md` | `native` |
+| `claude-code` | Claude Code | `CLAUDE.md` | `native` |
+| `cursor` | Cursor | `.cursor/rules/project-rules.mdc` | `native` |
+| `trae` | Trae | `.trae/rules/project-rules.md` | `native` |
+| `codebuddy` | CodeBuddy | `.codebuddy/rules/project-rules/RULE.mdc` | `native` |
+| `workbuddy` | WorkBuddy | `RULES.md` | `manual` |
 
-使用 WorkBuddy 时，需要导入根目录的 `RULES.md`，或通过 `@` 显式引用它。Generic
-工具也必须使用该工具提供的机制显式引用 `RULES.md`。这两项都不是自动加载。未
-登记在 registry 中的工具属于 `unverified`：Skill 不虚构路径或加载行为，也不为
-其生成 adapter。
+未登记的工具不生成 adapter。路径依据见[兼容性说明](docs/compatibility.md)。
 
-Claude Code 生成的 `CLAUDE.md` 使用不带代码 span 的
-`@.ai/rules/project.md` 导入 canonical project router。
+## 命令
 
-各 compatibility level 的定义、核验日期和官方来源见
-[兼容性说明](docs/compatibility.md)。
-
-## 无 Python 时的回退方式
-
-建议使用 Python 运行内置的确定性扫描器和输出校验器。请在已安装的 Skill 根目录
-执行：
+在 Skill 根目录运行扫描器和校验器：
 
 ```text
 python scripts/scan_project.py <project-root>
 python scripts/validate_outputs.py <project-root>
 ```
 
-扫描器限制目录 entry 数、文件数、单文件字节数、内容总字节数、Git 记录与字节数，
-并对 subprocess 使用真实超时。每个 inventory 记录都会区分已读取、跳过、截断或
-未核验；敏感路径仍只记录存在性。语言或 toolchain 信号会单独报告，不能独自推导
-backend 结论。当 `max_depth` 省略 entry（包括 `max_depth=0`）时，扫描器会设置
-`limits.depth_truncated`、返回 `complete: false`，并在不读取被省略正文的前提下
-记录有界的 `unverified` 路径；路径证据本身也受目录 entry 和内容字节预算限制，
-无法容纳的证据仍会计入 `unverified_summary` 的有界原因计数。
-
-如果没有 Python，Skill 会改用只读文件搜索和本地 Git 检查，并保持与扫描器一致
-的有界证据结构和排除规则。被中断或无法访问的区域会标记为 `unverified`，且不会
-执行目标项目命令。内置校验器无法在无 Python 环境中运行，因此 Skill 会明确报告
-这一限制，不会把“未校验”写成“已通过”。
-
-## 测试与贡献
-
-运行仓库单元测试和契约测试：
+运行测试：
 
 ```text
 python -m unittest discover -s tests -v
 ```
 
-行为场景及其预期断言定义在 `evals/evals.json`；本仓库未内置 behavior-eval
-runner。可以使用当前 Agent 环境提供的 Skill 评估流程；如果没有 runner，则逐项
-人工检查 prompt 与 expectation，并确认每个写入关口在批准前停止时 fixture 目录
-保持不变。
+输出校验包含真实文件锚点、源码中可核验的代码符号、显式多段调用链和命令形式
+验证候选的质量门禁；Skill 仍需对照项目配置核验所选命令。固定版本的五技术栈
+对比结果见 [benchmark](benchmarks/README.md)。
 
-贡献 adapter 或修改文档前，请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。Adapter
-metadata、模板、官方来源、单元测试和行为 eval 必须同步更新，并且不能改变
-canonical 规则语义。
+扫描器对目录、文件数量、内容字节、Git 记录和子进程时间设置了上限。未读取、
+截断或无法核验的范围会明确报告，不会把局部结果写成完整结论。
 
 ## 许可证
 

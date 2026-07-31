@@ -66,6 +66,31 @@ class PluginStructureTests(unittest.TestCase):
         self.assertIn("use `project-rules-update`", init_text)
         self.assertIn("use `project-rules-init`", update_text)
 
+    def test_scheme_b_removes_internal_artifacts_and_fixed_rule_templates(self) -> None:
+        removed = (
+            "docs/xm-bzhjswyh-content-comparison.md",
+            "docs/examples/init-example.md",
+            "docs/examples/update-example.md",
+            "assets/templates/analysis.md",
+            "assets/templates/rules-manifest.json",
+            "references/output-schema.md",
+            "scripts/adapter_registry.py",
+            "scripts/safe_fs.py",
+        )
+        for relative in removed:
+            with self.subTest(path=relative):
+                self.assertFalse((ROOT / relative).exists())
+        self.assertEqual([], list((ROOT / "assets/templates/rules").glob("*.md")))
+
+    def test_every_skill_resource_reference_resolves(self) -> None:
+        for skill_path in sorted((ROOT / "skills").glob("*/SKILL.md")):
+            text = skill_path.read_text(encoding="utf-8")
+            references = re.findall(r"`(\.\./\.\./(?:references|scripts)/[^` ]+)`", text)
+            self.assertTrue(references)
+            for reference in references:
+                with self.subTest(skill=skill_path.parent.name, reference=reference):
+                    self.assertTrue((skill_path.parent / reference).resolve().is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,11 +1,5 @@
-<!-- adapter-id: claude-code -->
-<!-- adapter-support: native-auto -->
-<!-- adapter-scope: repository -->
-<!-- adapter-loading: native -->
-<!-- adapter-consumers: claude-code -->
-<!-- TEMPLATE METADATA — renderer MUST preserve the adapter metadata comments and remove this instruction. -->
-# Canonical rule routing
+# Project rule routing
 
-@.ai/rules/project.md
+@.ai/rules/index.md
 
-Load only task-relevant canonical domain files after this import. This adapter adds no project rules.
+Load only the canonical rule groups relevant to the current change.

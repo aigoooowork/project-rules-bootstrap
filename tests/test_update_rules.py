@@ -1,94 +1,60 @@
+import hashlib
 import unittest
+
+
+def text_hash(value: str) -> str:
+    return hashlib.sha256(" ".join(value.split()).encode("utf-8")).hexdigest()
 
 
 def constraint_rule() -> dict:
     return {
         "id": "backend.repository-boundary",
-        "domain": "backend",
         "type": "constraint",
-        "status": "confirmed",
         "scope": "src/api/**",
         "text": "API handlers must not access the database directly.",
-        "confidence": "high",
-        "evidence": [
-            {
-                "kind": "user-confirmation",
-                "location": "confirmation.backend.repository-boundary",
-                "observation": "The user confirmed the constraint.",
-                "captured_at": "2026-07-28T00:01:00Z",
-            }
-        ],
         "reason": "Keep persistence behind the repository boundary.",
         "exception_policy": "No exceptions.",
         "verification": "Inspect changed handlers.",
-        "confirmation_id": "confirmation.backend.repository-boundary",
     }
 
 
-def prior_manifest(rule: dict, *, confirmations: object = None) -> dict:
-    if confirmations is None:
-        confirmations = [
+def prior_manifest(rule: dict) -> dict:
+    return {
+        "version": "2.0",
+        "project": {"name": "update fixture", "language": "en"},
+        "source": {"kind": "git", "revision": "abc123", "paths": ["."]},
+        "files": [],
+        "confirmations": [
             {
                 "id": "confirmation.backend.repository-boundary",
-                "recorded_at": "2026-07-28T00:01:00Z",
-                "decision": "confirmed",
-                "scope": "src/api/**",
-                "rule_ids": ["backend.repository-boundary"],
+                "rule_id": rule["id"],
+                "scope": rule["scope"],
+                "text_sha256": text_hash(rule["text"]),
+                "reason": rule["reason"],
+                "exception_policy": rule["exception_policy"],
+                "verification": rule["verification"],
+                "recorded_at": "2026-07-31T00:00:00Z",
             }
-        ]
-    return {
-        "version": "1.0",
-        "project": {"name": "update fixture", "language": "en"},
-        "scan_baseline": {
-            "kind": "full-scan",
-            "captured_at": "2026-07-28T00:00:00Z",
-            "paths": ["."],
-            "fallback_reason": "test fixture",
-        },
-        "rules": [rule],
-        "adapters": [],
-        "confirmations": confirmations,
+        ],
     }
 
 
 class UpdateRuleTests(unittest.TestCase):
-    def test_self_reported_canonical_state_without_confirmation_record_cannot_bypass(self) -> None:
-        from scripts.update_rules import requires_constraint_confirmation
-
-        claimed_previous = constraint_rule()
-
-        self.assertTrue(
-            requires_constraint_confirmation(
-                prior_manifest(claimed_previous, confirmations=[]),
-                dict(claimed_previous),
-            )
-        )
-
-    def test_unchanged_confirmed_canonical_constraint_does_not_require_reconfirmation(self) -> None:
-        from scripts.update_rules import requires_constraint_confirmation
-
-        previous = constraint_rule()
-
-        self.assertFalse(
-            requires_constraint_confirmation(
-                prior_manifest(previous),
-                dict(previous),
-            )
-        )
-
-    def test_first_import_requires_confirmation_even_when_semantics_match(self) -> None:
+    def test_unchanged_confirmed_constraint_does_not_require_reconfirmation(self) -> None:
         from scripts.update_rules import requires_constraint_confirmation
 
         rule = constraint_rule()
 
-        self.assertTrue(
-            requires_constraint_confirmation(
-                None,
-                dict(rule),
-            )
-        )
+        self.assertFalse(requires_constraint_confirmation(prior_manifest(rule), rule))
 
-    def test_each_semantic_constraint_change_requires_confirmation(self) -> None:
+    def test_missing_or_invalid_baseline_requires_confirmation(self) -> None:
+        from scripts.update_rules import requires_constraint_confirmation
+
+        rule = constraint_rule()
+        self.assertTrue(requires_constraint_confirmation(None, rule))
+        self.assertTrue(requires_constraint_confirmation({"version": "1.0"}, rule))
+
+    def test_each_semantic_change_requires_confirmation(self) -> None:
         from scripts.update_rules import requires_constraint_confirmation
 
         previous = constraint_rule()
@@ -104,49 +70,18 @@ class UpdateRuleTests(unittest.TestCase):
                 current = dict(previous)
                 current[field] = value
                 self.assertTrue(
-                    requires_constraint_confirmation(
-                        prior_manifest(previous),
-                        current,
-                    )
+                    requires_constraint_confirmation(prior_manifest(previous), current)
                 )
 
-    def test_changed_confirmation_state_or_identity_requires_confirmation(self) -> None:
+    def test_non_constraint_or_incomplete_current_rule_requires_confirmation(self) -> None:
         from scripts.update_rules import requires_constraint_confirmation
 
         previous = constraint_rule()
-        changes = {
-            "status": "candidate",
-            "confirmation_id": "confirmation.replacement",
-        }
-        for field, value in changes.items():
-            with self.subTest(field=field):
-                current = dict(previous)
-                current[field] = value
+        for change in ({"type": "fact"}, {"id": ""}, {"verification": ""}):
+            current = {**previous, **change}
+            with self.subTest(change=change):
                 self.assertTrue(
-                    requires_constraint_confirmation(
-                        prior_manifest(previous),
-                        current,
-                    )
-                )
-
-    def test_forged_prior_confirmation_decision_scope_or_reference_requires_confirmation(self) -> None:
-        from scripts.update_rules import requires_constraint_confirmation
-
-        previous = constraint_rule()
-        base_record = prior_manifest(previous)["confirmations"][0]
-        assert isinstance(base_record, dict)
-        cases = {
-            "decision": {**base_record, "decision": "deferred"},
-            "scope": {**base_record, "scope": "src/jobs/**"},
-            "reference": {**base_record, "rule_ids": ["backend.other-rule"]},
-        }
-        for name, record in cases.items():
-            with self.subTest(case=name):
-                self.assertTrue(
-                    requires_constraint_confirmation(
-                        prior_manifest(previous, confirmations=[record]),
-                        dict(previous),
-                    )
+                    requires_constraint_confirmation(prior_manifest(previous), current)
                 )
 
 

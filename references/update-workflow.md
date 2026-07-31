@@ -1,34 +1,31 @@
 # Update workflow
 
-1. Validate the complete prior Manifest and generated output tree. Capture the
-   exact current SHA-256 for every proposed existing-file write.
-2. Compute a local Git delta when available. If no reliable baseline exists,
-   run a bounded full scan and name truncated or unverified areas.
-3. Read changed bodies and trace each affected complete code chain upstream,
-   downstream, through persistence or integration, and into tests. A changed
-   filename alone is not a rule change.
-4. Compare current stable patterns with existing actionable rules. Preserve an
-   unchanged rule without re-confirmation. Reconsider it only when the stable
-   code pattern changed or the previous evidence no longer exists.
-   In short: preserve it without re-confirmation unless the stable code pattern changed.
-5. Present a semantic rule delta:
+1. Validate the prior v2 manifest and every owned file hash.
+2. Compute a local Git delta when reliable; otherwise perform a bounded scan
+   and name omitted or unverified areas.
+3. Read changed bodies and trace every affected complete code chain upstream,
+   downstream, through persistence/integration, returned state, consumers, and
+   tests. A filename change alone is not a rule change.
+4. Compare code evidence with existing actionable recipes. Preserve unchanged
+   rules without re-confirmation; remove or revise a rule when its real anchor,
+   boundary behavior, or verification no longer exists.
+5. Present a semantic delta:
 
-| Rule | Classification | Evidence-backed reason |
-| --- | --- | --- |
-| New repository call recipe | `added` | A repeated current code chain establishes it. |
-| Existing validation recipe | `modified` | Current callers and tests now use another shared helper. |
-| Removed legacy integration | `retired` | No current call chain or supported entry point remains. |
-| Competing transaction behavior | `conflict` | Current effective paths disagree; exclude until resolved. |
+| Classification | Meaning |
+| --- | --- |
+| `added` | Current evidence establishes a new actionable recipe. |
+| `modified` | The same task now follows a different real chain or contract. |
+| `retired` | The supported entry or implementation chain no longer exists; remove its exact previously owned output. |
+| `conflict` | Credible current sources disagree; exclude until resolved. |
 
-6. Separately classify proposed writes as `create`, `replace-owned`,
-   `managed-block`, or `manual-only`. Never overwrite an unowned file
-   wholesale. Reject symlinks, hash mismatches, invalid markers, and paths
-   outside the exact plan.
-7. Apply the confirmation policy. Request one write confirmation for the exact
-   final plan, then stage the approved set, commit it transactionally, install
-   the Manifest last, and validate the complete output tree.
+6. Apply the confirmation policy. Preserve unchanged confirmation records;
+   explicitly confirm every new or semantically changed strong constraint.
+7. Preview `create`, `replace-owned`, `delete-owned`, unchanged, and
+   `manual-only` paths. Replacement and deletion require ownership in the
+   on-disk prior manifest and the exact current SHA-256. Every prior owned path
+   omitted from the next manifest requires one `delete-owned` entry.
+8. After one final write approval, preflight the entire plan, write each file
+   atomically, install the manifest last, and validate the result.
 
-Formatting-only changes do not create semantic rule delta entries. First
-imports from human-authored rules are evidence candidates, not automatically
-trusted constraints. Unchanged validated constraints keep their existing
-confirmation record; semantic changes follow strict-risk handling.
+Formatting-only changes do not create semantic delta entries. First imports
+from human-authored AI rules are evidence candidates, not trusted constraints.

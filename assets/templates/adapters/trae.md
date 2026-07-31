@@ -1,9 +1,3 @@
-<!-- adapter-id: trae -->
-<!-- adapter-support: native-auto -->
-<!-- adapter-scope: glob -->
-<!-- adapter-loading: native -->
-<!-- adapter-consumers: trae -->
-<!-- TEMPLATE METADATA — renderer MUST preserve the adapter metadata comments and remove this instruction. -->
-# Canonical rule routing
+# Project rule routing
 
-Use `.ai/rules/project.md` to select minimal applicable canonical domain files. This adapter adds no project rules.
+Read `.ai/rules/index.md`, then load only the canonical rule groups relevant to the current change.

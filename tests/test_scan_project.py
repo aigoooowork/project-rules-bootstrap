@@ -338,7 +338,10 @@ class ScanProjectTests(unittest.TestCase):
 
             self.assertNotIn("OUTSIDE_SENTINEL", json.dumps(result))
             self.assertNotIn("outside-link", [item["path"] for item in result["files"]])
-            self.assertEqual({"frontend": [], "backend": []}, result["stack_signals"])
+            self.assertEqual(
+                {"frontend": [], "backend": [], "toolchains": []},
+                result["stack_signals"],
+            )
             self.assertEqual([], result["modules"])
 
     def test_scan_marks_non_git_directory_as_unavailable(self) -> None:

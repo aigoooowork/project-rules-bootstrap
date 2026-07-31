@@ -1,52 +1,12 @@
-"""Render canonical rule templates in one selected output language."""
+"""Render dynamic canonical rule documents and their stable index."""
 
 import re
-from pathlib import Path
-from typing import Mapping
+from typing import Iterable, Mapping
 
-from scripts.rule_contract import LANGUAGE_HEADINGS
+from scripts.rule_contract import LANGUAGE_HEADINGS, parse_confirmed_constraint_block
 
-HEADING_FIELDS = {
-    "SCOPE_HEADING": "scope",
-    "FACTS_HEADING": "facts",
-    "CONSTRAINTS_HEADING": "constraints",
-    "RULES_HEADING": "rules",
-    "VERIFICATION_HEADING": "verification",
-    "RELATED_HEADING": "related",
-}
-HEADING_TRANSLATIONS = {
-    language: {
-        token: headings[semantic_key]
-        for token, semantic_key in HEADING_FIELDS.items()
-    }
-    for language, headings in LANGUAGE_HEADINGS.items()
-}
-DOMAIN_TITLES = {
-    "en": {
-        "project": "project",
-        "architecture": "architecture",
-        "coding-style": "coding style",
-        "frontend": "frontend",
-        "backend": "backend",
-        "api": "API",
-        "database": "database",
-        "testing": "testing",
-        "security": "security",
-        "restrictions": "restrictions",
-    },
-    "zh-CN": {
-        "project": "项目",
-        "architecture": "架构",
-        "coding-style": "编码风格",
-        "frontend": "前端",
-        "backend": "后端",
-        "api": "接口",
-        "database": "数据库",
-        "testing": "测试",
-        "security": "安全",
-        "restrictions": "强约束",
-    },
-}
+
+DOMAIN_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REQUIRED_VALUES = (
     "PROJECT_NAME",
     "SCOPE",
@@ -55,56 +15,87 @@ REQUIRED_VALUES = (
     "VERIFICATION",
     "RELATED_RULES",
 )
-TEMPLATE_METADATA_PATTERN = re.compile(
-    r"\A(?:(?:<!--\s*(?:TEMPLATE METADATA|RULE RECIPE CONTRACT).*?-->)\s*)+",
-    re.DOTALL,
-)
-CONDITIONAL_CONSTRAINT_PATTERN = re.compile(
-    r"<!--\s*CONDITIONAL SECTION:.*?\n"
-    r"(?P<body>##\s+\{\{CONSTRAINTS_HEADING\}\}\s*\n"
-    r"\{\{CONFIRMED_CONSTRAINTS\}\}\s*\n)-->\s*",
-    re.DOTALL,
-)
-UNRESOLVED_PLACEHOLDER_PATTERN = re.compile(r"\{\{[A-Z0-9_]+\}\}")
+INDEX_COPY = {
+    "en": {
+        "title": "{project} project rules",
+        "intro": "Read the rule files that match the change you are making.",
+        "section": "Rule groups",
+    },
+    "zh-CN": {
+        "title": "{project} 项目规则",
+        "intro": "根据当前改动读取对应的规则文件。",
+        "section": "规则分组",
+    },
+}
 
 
-def render_rule_template(
-    template_path: Path,
-    language: str,
-    values: Mapping[str, object],
+def _safe_domain(domain: object) -> str:
+    if not isinstance(domain, str) or DOMAIN_PATTERN.fullmatch(domain) is None:
+        raise ValueError("domain must be a lowercase hyphenated slug")
+    return domain
+
+
+def _required_text(values: Mapping[str, object], field: str) -> str:
+    value = values.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("rule document requires non-empty {}".format(field))
+    return value.strip()
+
+
+def render_rule_document(
+    domain: str, language: str, values: Mapping[str, object]
 ) -> str:
-    """Render one canonical rule file with language-specific headings."""
-    headings = HEADING_TRANSLATIONS.get(language)
-    domain_titles = DOMAIN_TITLES.get(language)
-    if headings is None or domain_titles is None:
+    """Render one actionable canonical group without a fixed domain template."""
+    safe_domain = _safe_domain(domain)
+    headings = LANGUAGE_HEADINGS.get(language)
+    if headings is None:
         raise ValueError("language must be en or zh-CN")
-    domain = template_path.stem
-    if domain not in domain_titles:
-        raise ValueError("template name is not a supported canonical domain")
-
-    replacements = {}
-    for field in REQUIRED_VALUES:
-        value = values.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("Rule template requires a non-empty {}".format(field))
-        replacements[field] = value.strip()
+    content = {field: _required_text(values, field) for field in REQUIRED_VALUES}
     constraints = values.get("CONFIRMED_CONSTRAINTS", "")
     if not isinstance(constraints, str):
-        raise ValueError("CONFIRMED_CONSTRAINTS must be a string")
-    replacements["CONFIRMED_CONSTRAINTS"] = constraints.strip()
-    replacements.update(headings)
-    replacements["DOMAIN_TITLE"] = domain_titles[domain]
-
-    content = template_path.read_text(encoding="utf-8")
-    content = TEMPLATE_METADATA_PATTERN.sub("", content)
-    if replacements["CONFIRMED_CONSTRAINTS"]:
-        content = CONDITIONAL_CONSTRAINT_PATTERN.sub(
-            lambda match: match.group("body"), content
+        raise ValueError("CONFIRMED_CONSTRAINTS must be text")
+    if constraints.strip():
+        parse_confirmed_constraint_block(constraints)
+    sections = [
+        (headings["scope"], content["SCOPE"]),
+        (headings["facts"], content["CONFIRMED_FACTS"]),
+    ]
+    if constraints.strip():
+        sections.append((headings["constraints"], constraints.strip()))
+    sections.extend(
+        (
+            (headings["rules"], content["EXECUTION_RULES"]),
+            (headings["verification"], content["VERIFICATION"]),
+            (headings["related"], content["RELATED_RULES"]),
         )
-    else:
-        content = CONDITIONAL_CONSTRAINT_PATTERN.sub("", content)
-    for key, value in replacements.items():
-        content = content.replace("{{" + key + "}}", value)
-    if UNRESOLVED_PLACEHOLDER_PATTERN.search(content):
-        raise ValueError("Rule template contains an unresolved placeholder")
-    return content.strip() + "\n"
+    )
+    title = safe_domain.replace("-", " ")
+    blocks = ["# {} — {}".format(content["PROJECT_NAME"], title)]
+    blocks.extend("## {}\n{}".format(heading, body) for heading, body in sections)
+    return "\n\n".join(blocks) + "\n"
+
+
+def render_rule_index(
+    project_name: str, language: str, domains: Iterable[str]
+) -> str:
+    """Render the stable canonical entry from the groups that actually exist."""
+    if not isinstance(project_name, str) or not project_name.strip():
+        raise ValueError("project_name must be non-empty text")
+    copy = INDEX_COPY.get(language)
+    if copy is None:
+        raise ValueError("language must be en or zh-CN")
+    unique_domains = sorted({_safe_domain(domain) for domain in domains})
+    if not unique_domains:
+        raise ValueError("at least one canonical rule domain is required")
+    links = "\n".join(
+        "- [{}]({}.md)".format(domain.replace("-", " "), domain)
+        for domain in unique_domains
+    )
+    return (
+        "# {title}\n\n{intro}\n\n## {section}\n\n{links}\n".format(
+            title=copy["title"].format(project=project_name.strip()),
+            intro=copy["intro"],
+            section=copy["section"],
+            links=links,
+        )
+    )

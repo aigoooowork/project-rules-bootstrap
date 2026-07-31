@@ -1,17 +1,18 @@
 ---
 name: project-rules-init
-description: Use when initially creating AI coding rules for an existing repository that has no trusted project-rules-bootstrap baseline.
+description: Use when initially creating AI coding rules for an existing repository that has no trusted project-rules-bootstrap v2 baseline.
 ---
 
 # Project Rules Init
 
-Create rules that let a new AI change this repository in the same style as its
-existing maintainers. Project-specific coding behavior is the product;
-framework inventory is only discovery input.
+Create project rules that tell a new AI where a change belongs, which existing
+implementation to copy, how the real code chain connects, and how to verify it.
+Framework inventories and generic engineering advice are discovery notes, not
+rules.
 
-## Required shared resources
+## Required resources
 
-Read these before discovery:
+Read:
 
 - `../../references/code-chain-discovery.md`
 - `../../references/rule-classification.md`
@@ -20,42 +21,46 @@ Read these before discovery:
 - `../../references/adapter-content-contract.md`
 - `../../references/adapters.json`
 
-Run the shared read-only scanner:
+Run the read-only scanner:
 
 ```text
 python ../../scripts/scan_project.py <project-root>
 ```
 
-If a trusted `.ai/rules-manifest.json` already exists, stop initialization and
-use `project-rules-update`.
+If a valid `.ai/rules-manifest.json` version 2 baseline exists, stop and use `project-rules-update`.
 
-## Content-first workflow
+## Workflow
 
-1. Locate the repository root, existing assistant entry files, manifests,
-   executable verification commands, and the scanner's cross-language
-   candidates. Treat sensitive paths as existence-only.
-2. Read candidate bodies. Trace representative complete code chains from
-   entry or user action through interface, validation, business logic,
-   persistence or integration, response handling, and tests. Follow imports
-   and callers when the scanner only supplies a starting point.
-3. Compare comparable implementations across modules. Promote stable repeated
-   patterns directly, including legacy choices that differ from generic best
-   practice. Record real conflicts and weak evidence separately.
-   Stable repeated patterns are project rules, not confirmation questions.
-4. Build rules around the questions a coding AI needs answered:
-   **where to place** a change, **what to reuse**, what local shape and behavior
-   to copy, what nearby surfaces must change with it, and **how to verify** it.
-5. Produce a read-only **content preview** grouped by rule domain. Every
-   proposed rule must contain Action, Scope, Project anchor, and Verification.
-   Reject stack-only summaries, architecture inventories, and generic advice.
-6. Escalate only the material risks named in the confirmation policy. Do not
-   ask about role, preferences already answered by the repository, or stable
-   repeated patterns.
-7. Show the exact canonical and adapter file plan and request one write
-   confirmation. After approval, render, write transactionally, validate, and
-   report written, skipped, conflicted, and unverified items.
+1. Locate the repository root, existing AI instructions, real build/test
+   commands, major modules, and sensitive paths. Record sensitive paths as
+   existence-only; never read their values.
+2. Read candidate source bodies. For every major module, trace at least one
+   representative chain from its user, API, CLI, message, task, or library
+   entry through validation, business logic, persistence/integration, returned
+   state, and tests. Follow imports and callers beyond scanner hints.
+3. Compare at least two comparable implementations when declaring a repeated
+   convention. Capture concrete project structure, symbols, boundary behavior,
+   data/error flow, shared consumers, and working verification commands.
+4. Draft only actionable recipes containing **Action**, **Scope**, **Project
+   anchor**, and **Verification**. Exclude stack-only summaries, directory
+   listings, slogans, proposed architecture, and rules unsupported by code.
+5. Group recipes by the repository's actual concerns. Generate only groups
+   with useful content; do not force a fixed category list. Always produce
+   `.ai/rules/index.md` as the canonical entry to those groups.
+6. Resolve material uncertainty progressively. Ask one to three focused
+   questions at a time, normally no more than five to ten total. Exclude an
+   unresolved claim instead of publishing a guess.
+7. Treat every proposed `MUST`, `NEVER`, `必须`, or `禁止` instruction as a
+   separate strong-constraint decision. Show its exact action, scope, reason,
+   exception policy, project evidence, and verification, then obtain explicit
+   confirmation before including it.
+8. Preview the rule content and exact `create` / `manual-only` plan. An existing
+   unowned adapter file is `manual-only`; never overwrite it. Request one final
+   write confirmation after all content and strong-constraint decisions are
+   settled.
+9. After approval, render the dynamic canonical files, selected unique
+   adapters, and small v2 ownership manifest. Apply one preflighted write plan
+   with the manifest last, then run `scripts/validate_outputs.py`.
 
-Use the current conversation language for generated prose unless the user
-explicitly requests another language. Normal mode does not persist
-`.ai/rules.analysis.md`; it is an optional strict-risk artifact, not a required
-first write.
+Use the current conversation language unless the user requests another.
+Never create or persist `.ai/rules.analysis.md`.
