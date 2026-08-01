@@ -6,6 +6,68 @@ from scripts.rule_quality import evaluate_rule_quality
 
 
 class RuleQualityTests(unittest.TestCase):
+    def test_convention_profile_requires_config_and_comparable_source_without_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "pyproject.toml").write_text("[tool.ruff]\n")
+            (root / "src/first.py").write_text("def first_value(): return 1\n")
+            (root / "src/second.py").write_text("def second_value(): return 2\n")
+            document = """# Example — conventions
+
+<!-- rule-type: convention -->
+
+## Scope
+Python source under `src/`.
+
+## Confirmed facts
+`pyproject.toml` configures Ruff; `src/first.py` and `src/second.py` are comparable implementations.
+
+## Execution rules
+Use the configured formatter and the observed naming pattern in this scope.
+
+## Verification
+Run `ruff check src`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertEqual("convention", result["rule_type"])
+            self.assertEqual([], result["issues"])
+            self.assertEqual(0, result["chain_signals"])
+
+    def test_convention_profile_rejects_config_without_comparable_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text("[tool.ruff]\n")
+            (root / "ruff.toml").write_text("line-length = 100\n")
+            document = """# Example — conventions
+
+<!-- rule-type: convention -->
+
+## Scope
+Repository style.
+
+## Confirmed facts
+`pyproject.toml` and `ruff.toml` exist.
+
+## Execution rules
+Use the configured style.
+
+## Verification
+Run `ruff check .`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertIn("rule-type-anchor-mismatch", result["issues"])
+
     def test_tooling_profile_requires_real_files_and_command_not_code_chain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -38,6 +100,38 @@ None.
             self.assertEqual([], result["issues"])
             self.assertEqual(0, result["symbol_anchors"])
             self.assertEqual(0, result["chain_signals"])
+
+    def test_tooling_profile_recognizes_go_module_and_node_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "admin").mkdir()
+            (root / "go.mod").write_text("module example.com/api\ngo 1.22\n")
+            (root / "admin/package.json").write_text(
+                '{"scripts":{"build":"vite build"}}\n'
+            )
+            document = """# Example — build
+
+<!-- rule-type: tooling -->
+
+## Scope
+Backend and admin build declarations.
+
+## Confirmed facts
+`go.mod` and `admin/package.json` declare separate build surfaces.
+
+## Execution rules
+Run the matching build for the changed surface.
+
+## Verification
+Run `go build ./...` and `npm --prefix admin run build`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertEqual([], result["issues"])
 
     def test_code_chain_profile_still_requires_symbols_and_chain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

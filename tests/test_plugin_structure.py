@@ -55,6 +55,16 @@ class PluginStructureTests(unittest.TestCase):
             self.assertIn("../../scripts/scan_project.py", text)
             self.assertNotIn('"adapters": [', text)
 
+    def test_both_workflows_require_dynamic_development_convention_coverage(self) -> None:
+        for skill_path in sorted((ROOT / "skills").glob("*/SKILL.md")):
+            text = skill_path.read_text(encoding="utf-8")
+            with self.subTest(skill=skill_path.parent.name):
+                self.assertIn("../../references/development-conventions.md", text)
+                self.assertIn("development_conventions", text)
+                self.assertIn("applicability assessment", text.lower())
+                self.assertRegex(text.lower(), r"evidence-based\s+omission")
+                self.assertIn("do not force", text.lower())
+
     def test_skills_handoff_when_baseline_state_selects_the_other_mode(self) -> None:
         init_text = (
             ROOT / "skills" / "project-rules-init" / "SKILL.md"

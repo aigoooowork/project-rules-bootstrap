@@ -15,7 +15,7 @@ Every rule recipe contains:
    comparison.
 
 ```markdown
-<!-- rule-id: backend.add-business-endpoint -->
+<!-- recipe-id: backend.add-business-endpoint -->
 - Action: add the Resource beside `backend/app/preparation/res_preparation.py`.
   - Scope: `backend/app/**`
   - Project anchor: follow Resource → service → repository → response and its
@@ -70,9 +70,22 @@ Choose the narrowest profile supported by the group:
 | --- | --- |
 | `code-chain`, `api`, `database`, `frontend`, `ai` | At least two real paths, two real symbols, one multi-link chain, and a real verification command. |
 | `tooling`, `documentation` | At least two real configuration/script/document paths and a real verification command; code symbols are optional. |
+| `convention` | At least two comparable real source/test paths, one real configuration or project-document anchor, and a real verification command; a call chain is optional. |
 | `policy` | At least one real configuration, tooling, or documentation anchor plus explicit confirmation where the content is a strong constraint; a code chain is not required. |
 
 Do not label code behavior as `tooling` or `policy` to bypass chain evidence.
+
+Before grouping, complete the temporary development-convention applicability
+assessment requested by Init or Update. Coverage means either an actionable
+project-anchored recipe or an evidence-based omission; it never means creating
+a fixed style, testing, documentation, or compatibility file. Merge a useful
+convention into the concern where a developer would retrieve it.
+
+The canonical index may include a compact development-convention coverage
+section containing only evidence-based omissions, for example that no
+comparable test exemplar or generator boundary was found. Do not copy the full
+temporary assessment into the index, list empty dimensions, or turn omissions
+into generic recommendations.
 
 ## Strong constraints
 
@@ -83,3 +96,8 @@ manifest stores a unique confirmation record containing
 the rule ID, scope, normalized text SHA-256, reason, exception policy,
 verification, and confirmation time. Status text or repository absence is not
 confirmation.
+
+Use `<!-- recipe-id: ... -->` for ordinary execution recipes and
+`<!-- constraint-id: ... -->` for confirmed strong constraints. Never reuse the
+legacy `rule-id` marker: it cannot distinguish an observed project recipe from
+a user-confirmed restriction on future choices.

@@ -21,6 +21,9 @@ Read:
 - `../../references/adapter-content-contract.md`
 - `../../references/adapters.json`
 
+Conditionally read `../../references/development-conventions.md` only after the
+scanner reports `project_evidence.development_conventions`.
+
 Run the read-only scanner:
 
 ```text
@@ -47,29 +50,38 @@ If no valid `.ai/rules-manifest.json` version 2 baseline exists, stop and use `p
 4. Compare current implementations with existing canonical recipes. Verify
    definition, import, use, configuration, and test locations. Keep a
    rule only when its Action, Scope, Project anchor, and Verification still
-   reflect real code. Preserve unchanged rules without asking again.
-5. Show a semantic delta classified as `added`, `modified`, `retired`, or
+   reflect real code, including the symbol's actual callable/object role.
+   Preserve unchanged rules without asking again.
+5. Re-run the development-convention dimensions affected by changed source,
+   tests, configuration, public boundaries, or generators. Create a temporary
+   applicability assessment that either maps each applicable dimension to a
+   project-anchored recipe or records an evidence-based omission. Do not force
+   a convention rule or file, and do not turn a language default or isolated
+   example into a project-wide decision.
+6. Show a semantic delta classified as `added`, `modified`, `retired`, or
    `conflict`, with concrete paths and symbols. Formatting, movement, dependency
    versions, and architecture labels are not rule changes by themselves.
-6. Regroup files only when actual concerns changed. Keep
+7. Regroup files only when actual concerns changed. Keep
    `.ai/rules/index.md` aligned with the groups that still contain actionable
-   content; no fixed domain list is required.
-7. Ask progressive focused questions only for credible conflicts, weak
+   content; no fixed domain list is required. Update its compact evidence-based
+   omission notes for applicable convention dimensions, without persisting the
+   full assessment or empty categories.
+8. Ask progressive focused questions only for credible conflicts, weak
    evidence that would mislead future work, security/data-correctness choices,
    or new/changed strong constraints. Bind every question to concrete anchors,
    the unresolved choice, and the affected rule. Any changed prohibition,
    mandatory action, approval prerequisite, or only-allowed path requires its
    own explicit confirmation; an unchanged validated confirmation is preserved.
-8. If `project_evidence` reports affected specialties, read only their matching
+9. If `project_evidence` reports affected specialties, read only their matching
    sections in `../../references/specialized-discovery.md` and re-run those
    discovery paths. Select the narrowest `RULE_TYPE` for each
    group; do not weaken code-chain validation by labeling it tooling or policy.
-9. Preview the exact `create`, `replace-owned`, `delete-owned`, unchanged, and
+10. Preview the exact `create`, `replace-owned`, `delete-owned`, unchanged, and
    `manual-only` plan. Existing-file replacement or deletion requires
    ownership in the on-disk prior manifest plus the exact current SHA-256.
    Every retired generated path uses `delete-owned`; never overwrite or delete
    an unowned adapter.
-10. Request one final write confirmation, apply the single preflighted plan with
+11. Request one final write confirmation, apply the single preflighted plan with
    the manifest last, and validate the complete output tree.
 
 Use the current conversation language unless requested otherwise. Never write

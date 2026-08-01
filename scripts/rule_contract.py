@@ -35,6 +35,7 @@ MANDATORY_DIRECTIVE_TOKENS = (
     "DO NOT",
     "ONLY",
     "ALWAYS",
+    "ASK FIRST",
     "必须",
     "禁止",
     "不得",
@@ -44,12 +45,21 @@ MANDATORY_DIRECTIVE_TOKENS = (
     "仅允许",
     "务必",
     "不能",
+    "先询问",
+    "先确认",
 )
 STRONG_CONSTRAINT_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_])(?:MUST|NEVER|SHALL|DO\s+NOT)"
-    r"(?![A-Za-z0-9_])|必须|禁止|不得|严禁|不允许|只能|仅允许|务必|不能",
+    r"(?<![A-Za-z0-9_])(?:MUST|NEVER|SHALL|DO\s+NOT|ASK\s+FIRST)"
+    r"(?![A-Za-z0-9_])|必须|禁止|不得|严禁|不允许|只能|仅允许|务必|不能|先询问|先确认",
+    re.IGNORECASE,
 )
 CONSTRAINT_MARKER_PATTERN = re.compile(
+    r"^<!-- constraint-id: ([a-z0-9][a-z0-9._-]*) -->$"
+)
+RECIPE_MARKER_PATTERN = re.compile(
+    r"^<!-- recipe-id: ([a-z0-9][a-z0-9._-]*) -->$"
+)
+LEGACY_RULE_MARKER_PATTERN = re.compile(
     r"^<!-- rule-id: ([a-z0-9][a-z0-9._-]*) -->$"
 )
 

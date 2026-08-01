@@ -7,7 +7,12 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts.scan_project import _git_command, scan_project, select_rule_discovery_candidates
+from scripts.scan_project import (
+    _git_command,
+    detect_convention_recovery_targets,
+    scan_project,
+    select_rule_discovery_candidates,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -25,6 +30,179 @@ def create_symlink_or_skip(link: Path, target: Path) -> None:
 
 
 class ScanProjectTests(unittest.TestCase):
+    def test_configuration_and_tooling_files_are_scanned_as_rule_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = {
+                "pyproject.toml": "[tool.ruff]\nline-length = 100\n",
+                ".pre-commit-config.yaml": "repos: []\n",
+                ".github/workflows/ci.yml": "jobs: {}\n",
+                "scripts/lint.sh": "ruff check .\n",
+                "tsconfig.json": '{"compilerOptions": {"strict": true}}\n',
+                ".golangci.yml": "linters:\n  enable: [govet]\n",
+                "config/checkstyle.xml": "<module name=\"Checker\"/>\n",
+            }
+            for relative, content in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            (root / "src/main.py").parent.mkdir(parents=True)
+            (root / "src/main.py").write_text("def main(): return 1\n", encoding="utf-8")
+
+            result = scan_project(root, max_depth=5)
+            candidates = {
+                item["path"]: item for item in result["rule_discovery"]["candidates"]
+            }
+            inventory = {item["path"]: item for item in result["files"]}
+
+            for relative in files:
+                with self.subTest(path=relative):
+                    self.assertIn(relative, candidates)
+                    self.assertEqual("config-tooling", candidates[relative]["scan_priority"])
+                    self.assertTrue(inventory[relative]["content_scanned"])
+
+    def test_convention_evidence_keeps_relevant_config_and_source_under_workflow_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github/workflows").mkdir(parents=True)
+            for index in range(10):
+                (root / ".github/workflows/ci-{}.yml".format(index)).write_text(
+                    "jobs: {}\n", encoding="utf-8"
+                )
+            (root / "src").mkdir()
+            (root / "tests").mkdir()
+            (root / "pyproject.toml").write_text(
+                "[tool.ruff]\nline-length = 100\n", encoding="utf-8"
+            )
+            (root / "src/routes.py").write_text("def route(): return helper()\n")
+            (root / "src/helpers.py").write_text("def helper(): return 1\n")
+            (root / "tests/test_routes.py").write_text("def test_route(): pass\n")
+
+            result = scan_project(root, max_depth=5)
+            sources = result["project_evidence"]["development_conventions"][
+                "evidence_sources"
+            ]
+
+            self.assertIn("pyproject.toml", sources["formatting-and-imports"])
+            self.assertIn("src/routes.py", sources["formatting-and-imports"])
+            self.assertIn("pyproject.toml", sources["build-and-runtime"])
+            self.assertIn("tests/test_routes.py", sources["tests"])
+            self.assertIn("src/routes.py", sources["tests"])
+
+    def test_development_convention_routing_is_language_neutral(self) -> None:
+        cases = {
+            "python": {
+                "pyproject.toml": "[project]\nname='sample'\n[tool.ruff]\n",
+                "src/routes.py": "def public_route(): return helper_value()\n",
+                "src/helpers.py": "def helper_value(): return 1\n",
+                "tests/test_routes.py": "def test_public_route(): pass\n",
+            },
+            "typescript": {
+                "package.json": '{"scripts":{"test":"vitest"},"devDependencies":{"typescript":"5"}}',
+                "tsconfig.json": '{"compilerOptions":{"strict":true}}',
+                "src/routes.ts": "export function publicRoute(): number { return helperValue(); }\n",
+                "src/helpers.ts": "export function helperValue(): number { return 1; }\n",
+                "tests/routes.test.ts": "test('route', () => {})\n",
+            },
+            "go": {
+                "go.mod": "module example.test/sample\n\ngo 1.24\n",
+                ".golangci.yml": "linters:\n  enable: [govet]\n",
+                "routes.go": "package sample\nfunc PublicRoute() int { return helperValue() }\n",
+                "helpers.go": "package sample\nfunc helperValue() int { return 1 }\n",
+                "routes_test.go": "package sample\nfunc TestPublicRoute() {}\n",
+            },
+            "java": {
+                "pom.xml": "<project><artifactId>sample</artifactId></project>\n",
+                "config/checkstyle.xml": "<module name=\"Checker\"/>\n",
+                "src/main/java/sample/RouteController.java": "class RouteController { int publicRoute() { return 1; } }\n",
+                "src/main/java/sample/RouteHelper.java": "class RouteHelper { int value() { return 1; } }\n",
+                "src/test/java/sample/RouteControllerTest.java": "class RouteControllerTest {}\n",
+            },
+        }
+        for language, files in cases.items():
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for relative, content in files.items():
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+
+                result = scan_project(root, max_depth=8)
+                evidence = result["project_evidence"]["development_conventions"]
+
+                self.assertIn(language, evidence["languages"])
+                self.assertIn("build-and-runtime", evidence["applicable_dimensions"])
+                self.assertEqual(
+                    set(evidence["applicable_dimensions"]),
+                    set(evidence["evidence_sources"]),
+                )
+                self.assertEqual(
+                    "discovery-routing-not-proven-conventions", evidence["claim"]
+                )
+
+    def test_trivial_sources_do_not_enable_semantic_convention_dimensions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "go.mod").write_text(
+                "module example.test/sample\n\ngo 1.24\n", encoding="utf-8"
+            )
+            (root / "main.go").write_text(
+                "package main\nfunc main() {}\n", encoding="utf-8"
+            )
+            (root / "cmd/api").mkdir(parents=True)
+            (root / "cmd/api/main.go").write_text(
+                "package main\nfunc main() {}\n", encoding="utf-8"
+            )
+            (root / "admin/src").mkdir(parents=True)
+            (root / "admin/package.json").write_text(
+                '{"devDependencies":{"typescript":"5"},"scripts":{"build":"tsc"}}',
+                encoding="utf-8",
+            )
+            (root / "admin/src/App.tsx").write_text(
+                "export function App() { return null }\n", encoding="utf-8"
+            )
+
+            result = scan_project(root, max_depth=5)
+            dimensions = set(
+                result["project_evidence"]["development_conventions"][
+                    "applicable_dimensions"
+                ]
+            )
+
+            self.assertEqual({"build-and-runtime"}, dimensions)
+
+    def test_java_and_csharp_type_configuration_enables_type_discovery(self) -> None:
+        cases = {
+            "java": {
+                "pom.xml": "<project><nullaway.version>0.12</nullaway.version></project>\n",
+                "src/First.java": "interface First { String value(); }\n",
+                "src/Second.java": "record Second(String value) {}\n",
+            },
+            "csharp": {
+                "Sample.csproj": "<Project><PropertyGroup><Nullable>enable</Nullable></PropertyGroup></Project>\n",
+                "src/First.cs": "public interface First { string Value(); }\n",
+                "src/Second.cs": "public record Second(string Value);\n",
+            },
+        }
+        for language, files in cases.items():
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for relative, content in files.items():
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+
+                result = scan_project(root, max_depth=4)
+                conventions = result["project_evidence"]["development_conventions"]
+
+                self.assertIn(language, conventions["languages"])
+                self.assertIn("types-and-contracts", conventions["applicable_dimensions"])
+                expected_config = "pom.xml" if language == "java" else "Sample.csproj"
+                self.assertIn(
+                    expected_config,
+                    conventions["evidence_sources"]["types-and-contracts"],
+                )
+
     def test_scan_extracts_declared_versions_commands_environment_and_specialties(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -82,6 +260,76 @@ test = "pytest tests -q"
                     for item in result["rule_discovery"]["candidates"]
                     if item["path"] == "docs_src/example.py"
                 ),
+            )
+
+    def test_incomplete_scan_reports_targeted_convention_recovery_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "tests").mkdir()
+            (root / "docs_src").mkdir()
+            (root / "src/__init__.py").write_text("from .api import PublicAPI\n")
+            (root / "src/api.py").write_text("class PublicAPI: pass\n")
+            for index in range(10):
+                path = root / "docs_src/example{}".format(index)
+                path.mkdir()
+                (path / "__init__.py").write_text("EXAMPLE = True\n")
+            (root / "tests/test_deprecation.py").write_text(
+                "def test_deprecated_public_api(): pass\n"
+            )
+            (root / "pyproject.toml").write_text("[tool.ruff]\n")
+
+            result = scan_project(root, max_depth=4, max_content_bytes=1)
+            recovery = result["project_evidence"]["development_conventions"][
+                "recovery_targets"
+            ]
+
+            self.assertFalse(result["complete"])
+            self.assertIn("src/__init__.py", recovery["public-api-and-compatibility"])
+            self.assertNotIn(
+                "docs_src/example0/__init__.py",
+                recovery["public-api-and-compatibility"],
+            )
+            self.assertIn(
+                "tests/test_deprecation.py",
+                recovery["public-api-and-compatibility"],
+            )
+
+    def test_recovery_prefers_cross_language_entries_and_relevant_workflows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [
+                root / "src/main/java/sample/module-info.java",
+                root / "pkg/doc.go",
+                root / "Properties/AssemblyInfo.cs",
+                root / ".github/workflows/labeler.yml",
+                root / ".github/workflows/notify.yml",
+                root / ".github/workflows/latest-changes.yml",
+                root / ".github/workflows/test.yml",
+                root / ".github/workflows/format.yml",
+            ]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("placeholder\n", encoding="utf-8")
+
+            recovery = detect_convention_recovery_targets(root, paths, [])
+
+            public = recovery["public-api-and-compatibility"]
+            self.assertIn("src/main/java/sample/module-info.java", public)
+            self.assertIn("pkg/doc.go", public)
+            self.assertIn("Properties/AssemblyInfo.cs", public)
+            tooling = recovery["formatting-build-and-runtime"]
+            self.assertLess(
+                tooling.index(".github/workflows/test.yml"),
+                tooling.index(".github/workflows/labeler.yml"),
+            )
+            self.assertLess(
+                tooling.index(".github/workflows/format.yml"),
+                tooling.index(".github/workflows/notify.yml"),
+            )
+            self.assertLess(
+                tooling.index(".github/workflows/test.yml"),
+                tooling.index(".github/workflows/latest-changes.yml"),
             )
 
     def test_file_budget_traversal_reaches_primary_source_before_docs_tree(self) -> None:
@@ -149,6 +397,50 @@ tests = ["flask>=3.0.0"]
                 path.write_text("def value(): return 1\n")
             result = select_rule_discovery_candidates(root, paths, max_candidates_per_module=1)
             self.assertEqual("module/src/core.py", result["candidates"][0]["path"])
+
+    def test_docs_example_language_does_not_enable_project_language_cues(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "docs_src").mkdir()
+            (root / "src/routes.py").write_text("def route(): return 1\n")
+            (root / "src/helpers.py").write_text("def helper(): return 1\n")
+            (root / "docs_src/example.js").write_text("export const example = 1\n")
+            (root / "pyproject.toml").write_text("[project]\nname='sample'\n")
+
+            result = scan_project(root, max_depth=4)
+            evidence = result["project_evidence"]["development_conventions"]
+
+            self.assertEqual(["python"], evidence["languages"])
+            self.assertIn("generated-docs-and-artifacts", evidence["applicable_dimensions"])
+
+    def test_parent_directory_named_examples_does_not_reclassify_project_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "references" / "examples" / "sample-project"
+            (root / "src").mkdir(parents=True)
+            (root / "src/routes.ts").write_text(
+                "export function route() { return 1 }\n", encoding="utf-8"
+            )
+            (root / "src/helpers.ts").write_text(
+                "export function helper() { return 1 }\n", encoding="utf-8"
+            )
+            (root / "package.json").write_text(
+                '{"scripts":{"test":"vitest"}}', encoding="utf-8"
+            )
+
+            result = scan_project(root, max_depth=4)
+            priorities = {
+                item["path"]: item["scan_priority"]
+                for item in result["rule_discovery"]["candidates"]
+            }
+
+            self.assertEqual("primary-source", priorities["src/routes.ts"])
+            self.assertEqual("config-tooling", priorities["package.json"])
+            self.assertEqual(
+                ["typescript"],
+                result["project_evidence"]["development_conventions"]["languages"],
+            )
+            self.assertNotIn("docs-example", set(priorities.values()))
 
     def test_dev_only_ai_dependency_does_not_enable_ai_specialty(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

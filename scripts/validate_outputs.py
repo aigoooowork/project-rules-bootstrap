@@ -13,7 +13,10 @@ if __package__ in {None, ""}:
 
 from scripts.manifest import confirmed_constraints, load_manifest
 from scripts.rule_contract import (
+    CONSTRAINT_MARKER_PATTERN,
     LANGUAGE_HEADINGS,
+    LEGACY_RULE_MARKER_PATTERN,
+    RECIPE_MARKER_PATTERN,
     STRONG_CONSTRAINT_PATTERN,
     parse_confirmed_constraint_block,
 )
@@ -22,7 +25,9 @@ from scripts.rule_quality import evaluate_rule_quality
 
 ANALYSIS_PATH = ".ai/rules.analysis.md"
 MANIFEST_PATH = ".ai/rules-manifest.json"
-MARKER_PATTERN = re.compile(r"^<!-- rule-id: ([a-z0-9][a-z0-9._-]*) -->$")
+LEGACY_SCAN_DIRECTORY = ".ai/rules"
+LEGACY_SCAN_MAX_FILES = 100
+LEGACY_SCAN_MAX_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,40 @@ def _issue(code: str, path: str, message: str) -> ValidationIssue:
 
 def _digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _legacy_marker_issues(root: Path) -> List[ValidationIssue]:
+    """Inspect only small, direct Markdown rules when ownership metadata is absent."""
+    directory = root / LEGACY_SCAN_DIRECTORY
+    if _path_has_symlink(root, LEGACY_SCAN_DIRECTORY) or not directory.is_dir():
+        return []
+    issues: List[ValidationIssue] = []
+    try:
+        candidates = sorted(directory.glob("*.md"))[:LEGACY_SCAN_MAX_FILES]
+    except OSError:
+        return []
+    for target in candidates:
+        relative = target.relative_to(root).as_posix()
+        if target.is_symlink() or not target.is_file():
+            continue
+        try:
+            if target.stat().st_size > LEGACY_SCAN_MAX_BYTES:
+                continue
+            text = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if any(
+            LEGACY_RULE_MARKER_PATTERN.fullmatch(line.strip())
+            for line in text.splitlines()
+        ):
+            issues.append(
+                _issue(
+                    "legacy-rule-marker",
+                    relative,
+                    "replace rule-id with recipe-id or constraint-id during migration",
+                )
+            )
+    return issues
 
 
 def _path_has_symlink(root: Path, relative: str) -> bool:
@@ -67,6 +106,7 @@ def _canonical_issues(
     language: str,
     confirmations: Mapping[str, Mapping[str, object]],
     found_constraints: Set[str],
+    found_recipes: Set[str],
 ) -> List[ValidationIssue]:
     issues = []
     headings = LANGUAGE_HEADINGS[language]
@@ -121,7 +161,36 @@ def _canonical_issues(
                     "strong instructions are allowed only in confirmed constraints",
                 )
             )
-        marker = MARKER_PATTERN.fullmatch(line.strip())
+        stripped = line.strip()
+        legacy_marker = LEGACY_RULE_MARKER_PATTERN.fullmatch(stripped)
+        if legacy_marker is not None:
+            issues.append(
+                _issue(
+                    "legacy-rule-marker",
+                    path,
+                    "replace rule-id with recipe-id or constraint-id",
+                )
+            )
+            continue
+        recipe_marker = RECIPE_MARKER_PATTERN.fullmatch(stripped)
+        if recipe_marker is not None:
+            recipe_id = recipe_marker.group(1)
+            if current_section == "constraints":
+                issues.append(
+                    _issue(
+                        "recipe-in-constraint-section",
+                        path,
+                        "recipe marker cannot identify a confirmed constraint",
+                    )
+                )
+            elif recipe_id in found_recipes:
+                issues.append(
+                    _issue("duplicate-recipe-id", path, "recipe ID is duplicated")
+                )
+            else:
+                found_recipes.add(recipe_id)
+            continue
+        marker = CONSTRAINT_MARKER_PATTERN.fullmatch(stripped)
         if marker is None:
             continue
         rule_id = marker.group(1)
@@ -131,7 +200,9 @@ def _canonical_issues(
             )
             continue
         if rule_id in found_constraints:
-            issues.append(_issue("duplicate-rule-id", path, "constraint rule ID is duplicated"))
+            issues.append(
+                _issue("duplicate-constraint-id", path, "constraint ID is duplicated")
+            )
             continue
         found_constraints.add(rule_id)
         body = raw_lines[index + 1].strip() if index + 1 < len(raw_lines) else ""
@@ -164,11 +235,15 @@ def validate_output_tree(root: Path) -> List[ValidationIssue]:
     issues: List[ValidationIssue] = []
     manifest_path = root / MANIFEST_PATH
     if _path_has_symlink(root, MANIFEST_PATH) or not manifest_path.is_file():
-        return [_issue("invalid-manifest", MANIFEST_PATH, "manifest is missing or unsafe")]
+        return [
+            _issue("invalid-manifest", MANIFEST_PATH, "manifest is missing or unsafe")
+        ] + _legacy_marker_issues(root)
     try:
         manifest = load_manifest(manifest_path)
     except ValueError:
-        return [_issue("invalid-manifest", MANIFEST_PATH, "manifest is invalid")]
+        return [
+            _issue("invalid-manifest", MANIFEST_PATH, "manifest is invalid")
+        ] + _legacy_marker_issues(root)
 
     if os.path.lexists(str(root / ANALYSIS_PATH)):
         issues.append(
@@ -181,6 +256,7 @@ def validate_output_tree(root: Path) -> List[ValidationIssue]:
 
     confirmations = confirmed_constraints(manifest)
     found_constraints: Set[str] = set()
+    found_recipes: Set[str] = set()
     canonical_text: Dict[str, str] = {}
     for record in manifest["files"]:
         path = str(record["path"])
@@ -211,6 +287,7 @@ def validate_output_tree(root: Path) -> List[ValidationIssue]:
                     str(manifest["project"]["language"]),
                     confirmations,
                     found_constraints,
+                    found_recipes,
                 )
             )
             quality = evaluate_rule_quality(root, text)

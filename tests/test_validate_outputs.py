@@ -36,7 +36,7 @@ def output_tree(root: Path, *, strong_outside: bool = False) -> None:
                 "`src/api/repository.py`."
             ),
             "CONFIRMED_CONSTRAINTS": (
-                "<!-- rule-id: backend.repository-boundary -->\n"
+                "<!-- constraint-id: backend.repository-boundary -->\n"
                 "- {}".format(constraint_text)
             ),
             "EXECUTION_RULES": (
@@ -136,6 +136,28 @@ class ValidateOutputTreeTests(unittest.TestCase):
         self.assertIn("unexpected-analysis", codes)
         self.assertIn("unconfirmed-strong-instruction", codes)
 
+    def test_approval_prerequisite_outside_confirmation_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_tree(root)
+            path = root / ".ai/rules/backend.md"
+            text = path.read_text(encoding="utf-8").replace(
+                "## Execution rules\n",
+                "## Execution rules\n- 删除入口前先询问。\n- Ask first before changing the public API.\n",
+            )
+            path.write_text(text, encoding="utf-8")
+            manifest_path = root / ".ai/rules-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"][1]["sha256"] = digest(text)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            issues = self.module().validate_output_tree(root)
+
+        self.assertGreaterEqual(
+            sum(issue.code == "unconfirmed-strong-instruction" for issue in issues),
+            2,
+        )
+
     def test_descriptive_required_only_and_always_words_are_not_directives(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -205,7 +227,7 @@ class ValidateOutputTreeTests(unittest.TestCase):
             path = root / ".ai/rules/backend.md"
             text = path.read_text(encoding="utf-8")
             text = text.replace(
-                "<!-- rule-id: backend.repository-boundary -->\n"
+                "<!-- constraint-id: backend.repository-boundary -->\n"
                 "- API handlers MUST use repositories.",
                 "- API handlers MUST use repositories.",
             )
@@ -219,6 +241,63 @@ class ValidateOutputTreeTests(unittest.TestCase):
             issues = self.module().validate_output_tree(root)
 
         self.assertIn("unconfirmed-constraint", {issue.code for issue in issues})
+
+    def test_recipe_ids_are_allowed_only_outside_constraints_and_must_be_unique(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_tree(root)
+            path = root / ".ai/rules/backend.md"
+            text = path.read_text(encoding="utf-8").replace(
+                "## Execution rules\n",
+                "## Execution rules\n<!-- recipe-id: backend.extend-handler -->\n",
+            )
+            text = text.replace(
+                "## Verification\n",
+                "<!-- recipe-id: backend.extend-handler -->\n## Verification\n",
+            )
+            path.write_text(text, encoding="utf-8")
+            manifest_path = root / ".ai/rules-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"][1]["sha256"] = digest(text)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            issues = self.module().validate_output_tree(root)
+
+        self.assertIn("duplicate-recipe-id", {issue.code for issue in issues})
+
+    def test_legacy_rule_id_reports_migration_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_tree(root)
+            path = root / ".ai/rules/backend.md"
+            text = path.read_text(encoding="utf-8").replace(
+                "## Execution rules\n",
+                "## Execution rules\n<!-- rule-id: backend.legacy -->\n",
+            )
+            path.write_text(text, encoding="utf-8")
+            manifest_path = root / ".ai/rules-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"][1]["sha256"] = digest(text)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            issues = self.module().validate_output_tree(root)
+
+        self.assertIn("legacy-rule-marker", {issue.code for issue in issues})
+
+    def test_missing_manifest_still_reports_legacy_marker_for_safe_rule_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".ai/rules").mkdir(parents=True)
+            (root / ".ai/rules/legacy.md").write_text(
+                "<!-- rule-id: backend.legacy -->\n",
+                encoding="utf-8",
+            )
+
+            issues = self.module().validate_output_tree(root)
+            codes = {issue.code for issue in issues}
+
+        self.assertIn("invalid-manifest", codes)
+        self.assertIn("legacy-rule-marker", codes)
 
     def test_cli_returns_zero_for_valid_tree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

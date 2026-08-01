@@ -30,6 +30,7 @@ ROOT_FILE_SUFFIXES = {
     ".kts",
     ".md",
     ".mjs",
+    ".mod",
     ".py",
     ".rs",
     ".sh",
@@ -85,11 +86,20 @@ COMMAND_PREFIXES = {
 MAX_SOURCE_FILE_BYTES = 512 * 1024
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 RULE_TYPE_PATTERN = re.compile(
-    r"^<!-- rule-type: (code-chain|api|database|frontend|ai|tooling|documentation|policy) -->$",
+    r"^<!-- rule-type: (code-chain|api|database|frontend|ai|tooling|convention|documentation|policy) -->$",
     re.MULTILINE,
 )
 CODE_CHAIN_TYPES = {"code-chain", "api", "database", "frontend", "ai"}
-CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml", ".xml", ".gradle", ".kts"}
+CONFIG_SUFFIXES = {
+    ".gradle",
+    ".json",
+    ".kts",
+    ".mod",
+    ".toml",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 
 
 def _anchor_kind(relative: str) -> str:
@@ -237,6 +247,13 @@ def evaluate_rule_quality(root: Path, document: str) -> Dict[str, object]:
             issues.append("missing-complete-chain-signal")
     elif rule_type == "tooling":
         if sum(_anchor_kind(path) == "tooling" for path in existing) < 2:
+            issues.append("rule-type-anchor-mismatch")
+    elif rule_type == "convention":
+        anchor_kinds = [_anchor_kind(path) for path in existing]
+        if (
+            anchor_kinds.count("source") < 2
+            or not any(kind in {"tooling", "documentation"} for kind in anchor_kinds)
+        ):
             issues.append("rule-type-anchor-mismatch")
     elif rule_type == "documentation":
         anchor_kinds = [_anchor_kind(path) for path in existing]

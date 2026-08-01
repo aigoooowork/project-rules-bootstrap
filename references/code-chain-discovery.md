@@ -48,11 +48,19 @@ For important Python symbols run
 `python scripts/inspect_symbol.py <project-root> <symbol>` and report definition,
 import, and use locations separately. For other languages use language-aware
 search with the same distinction. A file that imports a symbol does not own its
-definition.
+definition. Preserve each symbol's actual role and callability in the written
+chain: do not add call parentheses to an exported object, router, constant, or
+module merely because its name appears at a registration site.
 
 When `project_evidence.specialized_discovery` is non-empty, read
 `specialized-discovery.md` only for the listed specialties and verify each
 dependency/path signal against source before drafting.
+
+When `project_evidence.development_conventions` lists applicable dimensions,
+read `development-conventions.md`. Use its language-neutral evidence threshold
+and load only the cues for detected languages. This convention pass complements
+the code-chain pass; neither FastAPI nor any other benchmark framework defines
+the default output.
 
 1. Give every major module a fair share of the content budget.
 2. Cover different roles before reading more files of one role.

@@ -15,3 +15,9 @@ Evidence records identify the path or local Git datum, observation, scan time,
 and confidence. A single example never proves a convention; a missing example
 never proves a prohibition. Generic best practice does not overrule a stable
 project convention.
+
+For naming, formatting, imports, types, errors, logging, comments, tests,
+public APIs, generated artifacts, and build/runtime practices, apply the same
+threshold across languages. A formatter or linter declaration is a fact; it
+becomes an actionable convention when its scope and real command or code usage
+are also verified. A language's customary style is never project evidence.

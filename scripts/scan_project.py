@@ -58,7 +58,18 @@ SCANNED_NAMES = {
     "compose.yml",
     "docker-compose.yaml",
     "docker-compose.yml",
+    ".editorconfig",
+    ".pre-commit-config.yaml",
+    ".pre-commit-config.yml",
+    ".golangci.yaml",
+    ".golangci.yml",
+    "tsconfig.json",
+    "biome.json",
+    "ruff.toml",
+    ".ruff.toml",
+    "checkstyle.xml",
 }
+SCANNED_NAMES_LOWER = {name.lower() for name in SCANNED_NAMES}
 MODULE_MANIFESTS = {
     "package.json",
     "pyproject.toml",
@@ -271,11 +282,48 @@ def _source_language(path: Path) -> Optional[str]:
     return SOURCE_LANGUAGES.get(path.suffix.lower())
 
 
-def _role_hints(path: Path) -> List[str]:
-    relative = path.as_posix().lower()
-    name = path.name.lower()
-    stem = path.stem.lower()
-    parts = {part.lower() for part in path.parts}
+def _project_relative_path(path: Path, root: Optional[Path]) -> Path:
+    if root is None:
+        return path
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return path
+
+
+def _is_config_tooling(path: Path, root: Optional[Path] = None) -> bool:
+    """Recognize repository-owned configuration and executable tooling inputs."""
+    project_path = _project_relative_path(path, root)
+    name = project_path.name.lower()
+    relative = project_path.as_posix().lower()
+    parts = {part.lower() for part in project_path.parts}
+    if path.name in SCANNED_NAMES or name in SCANNED_NAMES_LOWER:
+        return True
+    if path.suffix.lower() in {".csproj", ".props", ".targets"}:
+        return True
+    if ".github/workflows/" in relative and path.suffix.lower() in {".yml", ".yaml"}:
+        return True
+    if "scripts" in parts and path.suffix.lower() in {".sh", ".ps1", ".bat", ".cmd"}:
+        return True
+    if name.startswith(
+        ("tsconfig", ".eslintrc", ".prettierrc", "eslint.config.", "prettier.config.")
+    ):
+        return True
+    if name.startswith(("checkstyle", "pmd", "spotbugs")) and path.suffix.lower() in {
+        ".xml",
+        ".yml",
+        ".yaml",
+    }:
+        return True
+    return False
+
+
+def _role_hints(path: Path, root: Optional[Path] = None) -> List[str]:
+    project_path = _project_relative_path(path, root)
+    relative = project_path.as_posix().lower()
+    name = project_path.name.lower()
+    stem = project_path.stem.lower()
+    parts = {part.lower() for part in project_path.parts}
     roles: Set[str] = set()
 
     if (
@@ -400,22 +448,22 @@ def _candidate_quality(path: Path, roles: List[str]) -> int:
     return score
 
 
-def _scan_priority(path: Path, roles: List[str]) -> str:
-    parts = {part.lower() for part in path.parts}
-    relative = path.as_posix().lower()
+def _scan_priority(path: Path, roles: List[str], root: Optional[Path] = None) -> str:
+    project_path = _project_relative_path(path, root)
+    parts = {part.lower() for part in project_path.parts}
     if parts & {"docs", "docs_src", "examples", "example", "samples"}:
         return "docs-example"
     if "test" in roles:
         return "test"
+    if _is_config_tooling(path, root):
+        return "config-tooling"
     if _source_language(path) is not None:
         return "primary-source"
-    if path.name in SCANNED_NAMES or ".github/workflows/" in relative:
-        return "config-tooling"
     return "other"
 
 
-def _read_priority(path: Path) -> Tuple[int, str]:
-    priority = _scan_priority(path, _role_hints(path))
+def _read_priority(root: Path, path: Path) -> Tuple[int, str]:
+    priority = _scan_priority(path, _role_hints(path, root), root)
     order = {
         "primary-source": 0,
         "test": 1,
@@ -437,24 +485,30 @@ def select_rule_discovery_candidates(
     by_module: Dict[str, List[Dict[str, object]]] = {}
     for path in files:
         language = _source_language(path)
-        if language is None:
+        config_tooling = _is_config_tooling(path, root)
+        if language is None and not config_tooling:
             continue
         if path.name.lower() == "__init__.py":
             continue
         if classify_path(path) != "file" or not is_within_root(path, root):
             continue
-        roles = _role_hints(path)
+        roles = _role_hints(path, root)
+        if config_tooling and "tooling" not in roles:
+            roles.append("tooling")
+            roles.sort()
         module = _candidate_module(root, path, module_roots)
         by_module.setdefault(module, []).append(
             {
                 "path": _relative_path(root, path),
                 "module": module,
-                "language": language,
+                "language": language or "configuration",
                 "role_hints": roles,
                 "selection_reason": (
-                    "role-coverage" if roles else "comparable-source"
+                    "tooling-evidence"
+                    if config_tooling
+                    else ("role-coverage" if roles else "comparable-source")
                 ),
-                "scan_priority": _scan_priority(path, roles),
+                "scan_priority": _scan_priority(path, roles, root),
                 "_quality": _candidate_quality(path, roles),
             }
         )
@@ -498,18 +552,25 @@ def select_rule_discovery_candidates(
                 break
         if len(module_selected) < max_candidates_per_module:
             selected_paths = {str(item["path"]) for item in module_selected}
-            parent_counts: Dict[str, int] = {}
+            parent_counts: Dict[Tuple[str, str], int] = {}
             for item in module_selected:
                 parent = str(Path(str(item["path"])).parent)
-                parent_counts[parent] = parent_counts.get(parent, 0) + 1
+                parent_key = (parent, str(item["scan_priority"]))
+                parent_counts[parent_key] = parent_counts.get(parent_key, 0) + 1
             for candidate in candidates:
                 if str(candidate["path"]) in selected_paths:
                     continue
                 parent = str(Path(str(candidate["path"])).parent)
-                if parent_counts.get(parent, 0) >= MAX_RULE_DISCOVERY_CANDIDATES_PER_PARENT:
+                parent_key = (parent, str(candidate["scan_priority"]))
+                parent_limit = (
+                    8
+                    if candidate["scan_priority"] == "config-tooling"
+                    else MAX_RULE_DISCOVERY_CANDIDATES_PER_PARENT
+                )
+                if parent_counts.get(parent_key, 0) >= parent_limit:
                     continue
                 module_selected.append(candidate)
-                parent_counts[parent] = parent_counts.get(parent, 0) + 1
+                parent_counts[parent_key] = parent_counts.get(parent_key, 0) + 1
                 if len(module_selected) >= max_candidates_per_module:
                     break
         for candidate in module_selected:
@@ -526,6 +587,258 @@ def select_rule_discovery_candidates(
         "selection_limit_per_module": max_candidates_per_module,
         "claim": "representative-candidates-not-a-complete-call-graph",
     }
+
+
+def detect_development_convention_evidence(
+    root: Path,
+    candidates: List[Dict[str, object]],
+    contents: Mapping[Path, str],
+) -> Dict[str, object]:
+    """Route convention discovery without asserting a language's default style."""
+    readable = [item for item in candidates if item.get("content_scanned")]
+    primary = [item for item in readable if item.get("scan_priority") == "primary-source"]
+    tests = [item for item in readable if item.get("scan_priority") == "test"]
+    configs = [item for item in readable if item.get("scan_priority") == "config-tooling"]
+    docs = [item for item in readable if item.get("scan_priority") == "docs-example"]
+
+    def body(item: Dict[str, object]) -> str:
+        relative = Path(*str(item["path"]).split("/"))
+        return contents.get(root / relative, "")
+    languages = sorted(
+        {
+            str(item["language"])
+            for item in primary + tests
+            if item.get("language") not in {None, "configuration"}
+        }
+    )
+
+    def paths(items: List[Dict[str, object]], limit: int = 8) -> List[str]:
+        return sorted({str(item["path"]) for item in items})[:limit]
+
+    def combined_paths(
+        *groups: Tuple[List[Dict[str, object]], int], limit: int = 8
+    ) -> List[str]:
+        result: List[str] = []
+        for items, group_limit in groups:
+            for value in paths(items, group_limit):
+                if value not in result:
+                    result.append(value)
+                if len(result) >= limit:
+                    return result
+        return result
+
+    evidence_sources: Dict[str, List[str]] = {}
+    declaration_pattern = re.compile(
+        r"\b(?:def|class|func|function|interface|type|const|let|var|record|enum|struct|trait|fn)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+    )
+    declarations = {
+        match.group(1)
+        for item in primary
+        for match in declaration_pattern.finditer(body(item))
+    }
+    if len(primary) >= 2 and len(declarations) >= 6:
+        evidence_sources["naming-and-case"] = paths(primary)
+    error_pattern = re.compile(
+        r"\b(?:raise|except|throw|catch|panic|recover|logger|logging)\b|"
+        r"\b(?:Error|Exception)\b|(?:fmt|errors)\.(?:Errorf|New)|\blog\."
+    )
+    error_sources = [item for item in primary if error_pattern.search(body(item))]
+    if len(error_sources) >= 2:
+        evidence_sources["errors-logging-and-comments"] = paths(error_sources)
+    if configs:
+        style_tokens = (
+            "ruff",
+            "black",
+            "isort",
+            "eslint",
+            "prettier",
+            "biome",
+            "golangci",
+            "checkstyle",
+            "spotless",
+            "pmd",
+            "editorconfig",
+            "pre-commit",
+            "pyproject",
+            "tsconfig",
+            "lint",
+            "format",
+        )
+        style_configs = [
+            item
+            for item in configs
+            if any(token in str(item["path"]).lower() for token in style_tokens)
+        ]
+        if style_configs:
+            evidence_sources["formatting-and-imports"] = combined_paths(
+                (style_configs, 4), (primary, 4)
+            )
+        build_tokens = (
+            "package.json",
+            "pyproject.toml",
+            "requirements",
+            "pipfile",
+            "pom.xml",
+            "build.gradle",
+            "go.mod",
+            "cargo.toml",
+            "dockerfile",
+            "compose",
+            "makefile",
+            ".python-version",
+            ".nvmrc",
+            "test.",
+            "build.",
+        )
+        build_configs = [
+            item
+            for item in configs
+            if any(token in str(item["path"]).lower() for token in build_tokens)
+        ]
+        evidence_sources["build-and-runtime"] = combined_paths(
+            (build_configs or configs, 4), (configs, 4)
+        )
+    type_config_pattern = re.compile(
+        r"(?i)\bmypy\b|\bpyright\b|"
+        r"[\"']strict[\"']\s*:\s*true|noUncheckedIndexedAccess|"
+        r"\bnullaway\b|checkerframework|errorprone|"
+        r"<Nullable>\s*enable\s*</Nullable>|"
+        r"<TreatWarningsAsErrors>\s*true\s*</TreatWarningsAsErrors>|"
+        r"allWarningsAsErrors|explicitApi|(?:-Xjsr305=)strict"
+    )
+    type_source_pattern = re.compile(
+        r"\b(?:interface|struct|record|Protocol|TypedDict|BaseModel|dataclass)\b|"
+        r"->\s*[A-Za-z_]|\b(?:Promise|Optional|Result|Either)<"
+    )
+    type_configs = [item for item in configs if type_config_pattern.search(body(item))]
+    type_sources = [item for item in primary if type_source_pattern.search(body(item))]
+    if type_configs or len(type_sources) >= 2:
+        evidence_sources["types-and-contracts"] = combined_paths(
+            (type_configs, 2), (type_sources, 4), (tests, 2)
+        )
+    if tests:
+        evidence_sources["tests"] = combined_paths((tests, 4), (primary, 4))
+    interface = [
+        item for item in primary if "interface" in item.get("role_hints", [])
+    ]
+    public_pattern = re.compile(
+        r"\b(?:export|public)\b|\b(?:router|route)\b|"
+        r"\.use\s*\(|\.(?:get|post|put|patch|delete)\s*\(|"
+        r"@(?:Get|Post|Put|Patch|Delete|Request)Mapping\b|HandleFunc\s*\("
+    )
+    public_interfaces = [item for item in interface if public_pattern.search(body(item))]
+    if public_interfaces and (len(public_interfaces) >= 2 or tests):
+        evidence_sources["public-api-and-compatibility"] = combined_paths(
+            (public_interfaces, 4), (tests, 4)
+        )
+    generated_inputs = [
+        item
+        for item in configs
+        if any(
+            token in str(item["path"]).lower()
+            for token in ("doc", "generate", "schema", "openapi")
+        )
+    ]
+    if docs or generated_inputs:
+        evidence_sources["generated-docs-and-artifacts"] = paths(
+            docs + generated_inputs
+        )
+    return {
+        "languages": languages,
+        "applicable_dimensions": sorted(evidence_sources),
+        "evidence_sources": dict(sorted(evidence_sources.items())),
+        "claim": "discovery-routing-not-proven-conventions",
+    }
+
+
+def detect_convention_recovery_targets(
+    root: Path,
+    files: List[Path],
+    candidates: List[Dict[str, object]],
+) -> Dict[str, List[str]]:
+    """Name high-value unread convention anchors after a bounded partial scan."""
+    readable = {
+        str(item["path"]) for item in candidates if item.get("content_scanned")
+    }
+    safe_paths = [
+        path
+        for path in files
+        if classify_path(path) == "file" and is_within_root(path, root)
+    ]
+
+    def select(predicate, limit: int = 8) -> List[str]:
+        values = []
+        for path in safe_paths:
+            relative = _relative_path(root, path)
+            roles = _role_hints(path, root)
+            if (
+                relative in readable
+                or _scan_priority(path, roles, root) == "docs-example"
+                or not predicate(path, relative.lower())
+            ):
+                continue
+            values.append((_read_priority(root, path), relative))
+        return [
+            relative
+            for _, relative in sorted(set(values), key=lambda item: item[0])[:limit]
+        ]
+
+    public_names = {
+        "__init__.py",
+        "assemblyinfo.cs",
+        "doc.go",
+        "exports.go",
+        "index.js",
+        "index.ts",
+        "index.tsx",
+        "lib.rs",
+        "module-info.java",
+        "package-info.java",
+    }
+    public_targets = select(
+        lambda path, relative: path.name.lower() in public_names
+        or any(token in relative for token in ("deprecat", "compat", "public", "export")),
+        limit=4,
+    )
+    test_targets = select(
+        lambda path, relative: "test" in _role_hints(path, root)
+        and any(token in relative for token in ("deprecat", "compat", "public", "export")),
+        limit=4,
+    )
+    config_targets = select(
+        lambda path, relative: _is_config_tooling(path, root), limit=32
+    )
+
+    def config_recovery_priority(relative: str) -> Tuple[int, str]:
+        lowered = relative.lower()
+        name = Path(relative).name.lower()
+        if name in SCANNED_NAMES_LOWER or any(
+            token in lowered for token in ("/scripts/", "checkstyle", "eslint", "prettier")
+        ):
+            return 0, relative
+        workflow_gate = re.search(
+            r"(?:^|[-_.])(?:build|ci|docs|format|lint|pre-commit|test)(?:[-_.]|$)",
+            name,
+        )
+        if ".github/workflows/" in lowered and workflow_gate is not None:
+            return 1, relative
+        if ".github/workflows/" in lowered and any(
+            token in name for token in ("publish", "release")
+        ):
+            return 2, relative
+        return 3, relative
+
+    config_targets = sorted(config_targets, key=config_recovery_priority)[:8]
+    recovery: Dict[str, List[str]] = {}
+    combined_public = list(public_targets)
+    combined_public.extend(
+        target for target in test_targets if target not in combined_public
+    )
+    if combined_public:
+        recovery["public-api-and-compatibility"] = combined_public
+    if config_targets:
+        recovery["formatting-build-and-runtime"] = config_targets
+    return recovery
 
 
 def detect_project_evidence(
@@ -1096,7 +1409,7 @@ def scan_project(
     scanned_contents: Dict[Path, str] = {}
     content_bytes_read = 0
     body_by_path: Dict[Path, _BodyResult] = {}
-    for path in sorted(collection.files, key=_read_priority):
+    for path in sorted(collection.files, key=lambda item: _read_priority(resolved_root, item)):
         body = _read_bounded_body(
             resolved_root,
             path,
@@ -1145,6 +1458,20 @@ def scan_project(
     stack_signals = detect_stack_signals(
         resolved_root, collection.files, scanned_contents
     )
+    project_evidence = detect_project_evidence(
+        resolved_root, collection.files, scanned_contents, stack_signals
+    )
+    project_evidence["development_conventions"] = (
+        detect_development_convention_evidence(
+            resolved_root, rule_discovery["candidates"], scanned_contents
+        )
+    )
+    if not complete:
+        project_evidence["development_conventions"]["recovery_targets"] = (
+            detect_convention_recovery_targets(
+                resolved_root, collection.files, rule_discovery["candidates"]
+            )
+        )
     return {
         "root": str(resolved_root),
         "complete": complete,
@@ -1152,9 +1479,7 @@ def scan_project(
         "unverified": collection.unverified,
         "unverified_summary": collection.unverified_summary,
         "stack_signals": stack_signals,
-        "project_evidence": detect_project_evidence(
-            resolved_root, collection.files, scanned_contents, stack_signals
-        ),
+        "project_evidence": project_evidence,
         "modules": detect_modules(
             resolved_root, collection.files, scanned_contents
         ),

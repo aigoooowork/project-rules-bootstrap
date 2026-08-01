@@ -48,13 +48,13 @@ class DynamicRuleRenderingTests(unittest.TestCase):
 
     def test_includes_only_explicitly_confirmed_constraint_content(self) -> None:
         constraint = (
-            "<!-- rule-id: deployment.approval -->\n"
+            "<!-- constraint-id: deployment.approval -->\n"
             "- 生产发布必须经过已确认的审批流程。"
         )
         rendered = self.render("deployment", "zh-CN", values(constraint))
 
         self.assertIn("## 已确认的强约束", rendered)
-        self.assertEqual(1, rendered.count("<!-- rule-id: deployment.approval -->"))
+        self.assertEqual(1, rendered.count("<!-- constraint-id: deployment.approval -->"))
         self.assertIn("生产发布必须", rendered)
 
     def test_accepts_extended_strong_constraint_language(self) -> None:
@@ -66,7 +66,7 @@ class DynamicRuleRenderingTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 constraint = (
-                    "<!-- rule-id: deployment.extended -->\n- {}".format(text)
+                    "<!-- constraint-id: deployment.extended -->\n- {}".format(text)
                 )
                 rendered = self.render(
                     "deployment", "zh-CN" if "。" in text else "en", values(constraint)
@@ -74,7 +74,7 @@ class DynamicRuleRenderingTests(unittest.TestCase):
                 self.assertIn(text, rendered)
 
         semantic = (
-            "<!-- rule-id: deployment.semantic -->\n"
+            "<!-- constraint-id: deployment.semantic -->\n"
             "- Obtain security approval before deployment."
         )
         self.assertIn(
@@ -88,6 +88,10 @@ class DynamicRuleRenderingTests(unittest.TestCase):
         rendered = self.render("tooling", "en", data)
         self.assertIn("<!-- rule-type: tooling -->", rendered)
 
+        data["RULE_TYPE"] = "convention"
+        rendered = self.render("coding-conventions", "en", data)
+        self.assertIn("<!-- rule-type: convention -->", rendered)
+
         data["RULE_TYPE"] = "generic"
         with self.assertRaisesRegex(ValueError, "RULE_TYPE"):
             self.render("tooling", "en", data)
@@ -95,10 +99,11 @@ class DynamicRuleRenderingTests(unittest.TestCase):
     def test_rejects_unmarked_or_non_strong_confirmed_constraint_items(self) -> None:
         for constraints in (
             "- Code MUST pass validation.",
-            "<!-- rule-id: deployment.approval -->\n- Code MUST pass.\n- Code NEVER skips.",
+            "<!-- rule-id: deployment.legacy -->\n- Code MUST pass.",
+            "<!-- constraint-id: deployment.approval -->\n- Code MUST pass.\n- Code NEVER skips.",
             (
-                "<!-- rule-id: deployment.approval -->\n- Code MUST pass.\n"
-                "<!-- rule-id: deployment.approval -->\n- Code NEVER skips."
+                "<!-- constraint-id: deployment.approval -->\n- Code MUST pass.\n"
+                "<!-- constraint-id: deployment.approval -->\n- Code NEVER skips."
             ),
         ):
             with self.subTest(constraints=constraints):
@@ -124,6 +129,25 @@ class DynamicRuleRenderingTests(unittest.TestCase):
         self.assertEqual(1, rendered.count("deployment.md"))
         self.assertEqual(1, rendered.count("testing.md"))
         self.assertNotIn("backend.md", rendered)
+
+    def test_index_can_record_compact_evidence_based_omissions(self) -> None:
+        rendered = render_rules.render_rule_index(
+            "Example",
+            "en",
+            ["deployment"],
+            coverage_notes=[
+                "tests — omitted: no project test exemplar was found",
+                "generated-docs-and-artifacts — omitted: no generator boundary was found",
+            ],
+        )
+
+        self.assertIn("## Development convention coverage", rendered)
+        self.assertIn("- tests — omitted: no project test exemplar was found", rendered)
+        self.assertIn("- generated-docs-and-artifacts — omitted:", rendered)
+        self.assertNotIn("naming-and-case", rendered)
+
+        default_rendered = self.index("Example", "en", ["deployment"])
+        self.assertNotIn("Development convention coverage", default_rendered)
 
     def test_index_requires_at_least_one_domain(self) -> None:
         with self.assertRaises(ValueError):

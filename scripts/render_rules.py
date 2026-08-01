@@ -14,6 +14,7 @@ RULE_TYPES = {
     "frontend",
     "ai",
     "tooling",
+    "convention",
     "documentation",
     "policy",
 }
@@ -30,11 +31,13 @@ INDEX_COPY = {
         "title": "{project} project rules",
         "intro": "Read the rule files that match the change you are making.",
         "section": "Rule groups",
+        "coverage": "Development convention coverage",
     },
     "zh-CN": {
         "title": "{project} 项目规则",
         "intro": "根据当前改动读取对应的规则文件。",
         "section": "规则分组",
+        "coverage": "开发惯例覆盖说明",
     },
 }
 
@@ -92,7 +95,10 @@ def render_rule_document(
 
 
 def render_rule_index(
-    project_name: str, language: str, domains: Iterable[str]
+    project_name: str,
+    language: str,
+    domains: Iterable[str],
+    coverage_notes: Iterable[str] = (),
 ) -> str:
     """Render the stable canonical entry from the groups that actually exist."""
     if not isinstance(project_name, str) or not project_name.strip():
@@ -107,7 +113,21 @@ def render_rule_index(
         "- [{}]({}.md)".format(domain.replace("-", " "), domain)
         for domain in unique_domains
     )
-    return (
+    if isinstance(coverage_notes, str):
+        raise ValueError("coverage_notes must be an iterable of concise lines")
+    notes = []
+    for note in coverage_notes:
+        if (
+            not isinstance(note, str)
+            or not note.strip()
+            or "\n" in note
+            or len(note.strip()) > 240
+        ):
+            raise ValueError("coverage notes must be non-empty single lines")
+        normalized = note.strip()
+        if normalized not in notes:
+            notes.append(normalized)
+    rendered = (
         "# {title}\n\n{intro}\n\n## {section}\n\n{links}\n".format(
             title=copy["title"].format(project=project_name.strip()),
             intro=copy["intro"],
@@ -115,3 +135,9 @@ def render_rule_index(
             links=links,
         )
     )
+    if notes:
+        rendered += "\n## {}\n\n{}\n".format(
+            copy["coverage"],
+            "\n".join("- {}".format(note) for note in notes),
+        )
+    return rendered
