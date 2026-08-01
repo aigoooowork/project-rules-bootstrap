@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Set, Tuple
 
+try:
+    import tomllib
+except ImportError:  # Python 3.10 fallback keeps scanning available.
+    tomllib = None
+
 
 SENSITIVE_NAMES = {
     ".env",
@@ -45,6 +50,14 @@ SCANNED_NAMES = {
     "build.gradle.kts",
     "go.mod",
     "Cargo.toml",
+    ".python-version",
+    ".nvmrc",
+    "Dockerfile",
+    "Makefile",
+    "compose.yaml",
+    "compose.yml",
+    "docker-compose.yaml",
+    "docker-compose.yml",
 }
 MODULE_MANIFESTS = {
     "package.json",
@@ -74,6 +87,7 @@ SOURCE_LANGUAGES = {
     ".php": "php",
 }
 MAX_RULE_DISCOVERY_CANDIDATES_PER_MODULE = 12
+MAX_RULE_DISCOVERY_CANDIDATES_PER_PARENT = 2
 MAX_DIRECTORY_ENTRIES = 5000
 MAX_FILES = 2000
 MAX_FILE_BYTES = 64 * 1024
@@ -86,6 +100,16 @@ PYTHON_BACKEND_FRAMEWORK_PATTERN = re.compile(
     r"(?i)(?:^|[^A-Za-z0-9_-])(django|flask|fastapi|starlette|litestar)"
     r"(?:[^A-Za-z0-9_-]|$)"
 )
+KNOWN_FRAMEWORKS = {
+    "django",
+    "express",
+    "fastapi",
+    "fastify",
+    "flask",
+    "litestar",
+    "nestjs",
+    "starlette",
+}
 
 
 @dataclass(frozen=True)
@@ -160,7 +184,7 @@ def _package_dependencies(content: str) -> Set[str]:
     if not isinstance(package, dict):
         return set()
     dependencies: Set[str] = set()
-    for section in ("dependencies", "devDependencies", "peerDependencies"):
+    for section in ("dependencies", "peerDependencies"):
         values = package.get(section, {})
         if isinstance(values, dict):
             dependencies.update(str(name) for name in values)
@@ -197,7 +221,13 @@ def detect_stack_signals(
                     backend.add(framework)
         elif name in {"pyproject.toml", "requirements.txt", "Pipfile", "manage.py"}:
             toolchains.add("python")
-            for match in PYTHON_BACKEND_FRAMEWORK_PATTERN.findall(content):
+            framework_content = content
+            if name == "pyproject.toml":
+                project_section = re.search(
+                    r"(?ms)^\[project\]\s*(.*?)(?=^\[|\Z)", content
+                )
+                framework_content = project_section.group(1) if project_section else ""
+            for match in PYTHON_BACKEND_FRAMEWORK_PATTERN.findall(framework_content):
                 backend.add(match.lower())
         elif name in {"pom.xml", "build.gradle", "build.gradle.kts"}:
             toolchains.add("java")
@@ -262,6 +292,7 @@ def _role_hints(path: Path) -> List[str]:
             "resource",
             "routes",
             "router",
+            "routing",
             "/views/",
             "/view/",
             "/pages/",
@@ -352,6 +383,8 @@ def _candidate_quality(path: Path, roles: List[str]) -> int:
         score += 100
     elif name in {"views_resource.py", "routes.py", "router.js", "router.ts"}:
         score += 90
+    elif name in {"routing.py", "applications.py", "dependencies.py"}:
+        score += 95
     elif name.startswith("res_") or name.endswith(("_handler.go", "controller.java")):
         score += 85
     elif any(token in stem for token in ("parser", "validation", "validator", "schema")):
@@ -365,6 +398,32 @@ def _candidate_quality(path: Path, roles: List[str]) -> int:
     if stem in {"runtime_services", "common", "utils", "config"}:
         score -= 20
     return score
+
+
+def _scan_priority(path: Path, roles: List[str]) -> str:
+    parts = {part.lower() for part in path.parts}
+    relative = path.as_posix().lower()
+    if parts & {"docs", "docs_src", "examples", "example", "samples"}:
+        return "docs-example"
+    if "test" in roles:
+        return "test"
+    if _source_language(path) is not None:
+        return "primary-source"
+    if path.name in SCANNED_NAMES or ".github/workflows/" in relative:
+        return "config-tooling"
+    return "other"
+
+
+def _read_priority(path: Path) -> Tuple[int, str]:
+    priority = _scan_priority(path, _role_hints(path))
+    order = {
+        "primary-source": 0,
+        "test": 1,
+        "config-tooling": 2,
+        "docs-example": 3,
+        "other": 4,
+    }
+    return order[priority], path.as_posix()
 
 
 def select_rule_discovery_candidates(
@@ -395,6 +454,7 @@ def select_rule_discovery_candidates(
                 "selection_reason": (
                     "role-coverage" if roles else "comparable-source"
                 ),
+                "scan_priority": _scan_priority(path, roles),
                 "_quality": _candidate_quality(path, roles),
             }
         )
@@ -408,15 +468,29 @@ def select_rule_discovery_candidates(
         for role in candidate["role_hints"]
     }
     for module in sorted(by_module):
+        priority_order = {
+            "primary-source": 0,
+            "test": 1,
+            "config-tooling": 2,
+            "docs-example": 3,
+            "other": 4,
+        }
         candidates = sorted(
             by_module[module],
-            key=lambda item: (-int(item["_quality"]), str(item["path"])),
+            key=lambda item: (
+                priority_order[str(item["scan_priority"])],
+                -int(item["_quality"]),
+                str(item["path"]),
+            ),
         )
         module_selected: List[Dict[str, object]] = []
         covered: Set[str] = set()
         for candidate in candidates:
             new_roles = set(candidate["role_hints"]) - covered
-            if not new_roles:
+            # Preserve the highest-priority project evidence even when the
+            # filename does not imply one of the known architectural roles.
+            # Otherwise a docs/example route can displace a real source file.
+            if not new_roles and module_selected:
                 continue
             module_selected.append(candidate)
             covered.update(candidate["role_hints"])
@@ -424,10 +498,18 @@ def select_rule_discovery_candidates(
                 break
         if len(module_selected) < max_candidates_per_module:
             selected_paths = {str(item["path"]) for item in module_selected}
+            parent_counts: Dict[str, int] = {}
+            for item in module_selected:
+                parent = str(Path(str(item["path"])).parent)
+                parent_counts[parent] = parent_counts.get(parent, 0) + 1
             for candidate in candidates:
                 if str(candidate["path"]) in selected_paths:
                     continue
+                parent = str(Path(str(candidate["path"])).parent)
+                if parent_counts.get(parent, 0) >= MAX_RULE_DISCOVERY_CANDIDATES_PER_PARENT:
+                    continue
                 module_selected.append(candidate)
+                parent_counts[parent] = parent_counts.get(parent, 0) + 1
                 if len(module_selected) >= max_candidates_per_module:
                     break
         for candidate in module_selected:
@@ -446,6 +528,263 @@ def select_rule_discovery_candidates(
     }
 
 
+def detect_project_evidence(
+    root: Path,
+    files: List[Path],
+    contents: Mapping[Path, str],
+    stack_signals: Mapping[str, List[str]],
+) -> Dict[str, object]:
+    """Extract bounded declarations without claiming the external runtime matches them."""
+    runtimes: List[Dict[str, str]] = []
+    dependencies: List[Dict[str, str]] = []
+    commands: List[Dict[str, str]] = []
+    environment_sources: List[Dict[str, str]] = []
+    runtime_dependency_names: Set[str] = set()
+    project_identity: Dict[str, str] = {}
+    primary_frameworks: Set[str] = set()
+    package_managers: Set[str] = set()
+
+    lockfile_managers = {
+        "pnpm-lock.yaml": "pnpm",
+        "yarn.lock": "yarn",
+        "package-lock.json": "npm",
+        "npm-shrinkwrap.json": "npm",
+    }
+    for manifest_path in files:
+        manager = lockfile_managers.get(manifest_path.name)
+        if manager:
+            package_managers.add(manager)
+
+    def add_named_dependency(
+        name: object, version: object, source: str, scope: str
+    ) -> None:
+        if not isinstance(name, str) or not name.strip():
+            return
+        normalized_name = name.strip()
+        dependencies.append(
+            {
+                "name": normalized_name,
+                "version": str(version).strip() or "unspecified",
+                "source": source,
+                "scope": scope,
+            }
+        )
+        if scope in {"runtime", "peer"}:
+            runtime_dependency_names.add(normalized_name.lower())
+
+    def add_dependency(value: object, source: str, scope: str) -> None:
+        if not isinstance(value, str):
+            return
+        match = re.match(r"^([A-Za-z0-9_.-]+)(?:\[[^]]+\])?\s*(.*)$", value.strip())
+        if match is None:
+            return
+        name, version = match.groups()
+        add_named_dependency(name, version or "unspecified", source, scope)
+
+    for path in files:
+        relative = _relative_path(root, path)
+        lower_name = path.name.lower()
+        content = contents.get(path, "")
+        if lower_name.startswith(".env") or lower_name in {
+            "dockerfile",
+            "compose.yaml",
+            "compose.yml",
+            "docker-compose.yaml",
+            "docker-compose.yml",
+        } or any(part.lower() in {"config", "settings"} for part in path.parts):
+            environment_sources.append(
+                {"path": relative, "kind": "declared-config-source"}
+            )
+        if path.suffix == ".sh" and "scripts" in {part.lower() for part in path.parts}:
+            if path.name.lower() in {"test.sh", "tests.sh", "lint.sh", "format.sh", "build.sh"}:
+                commands.append({"command": "bash {}".format(relative), "source": relative, "working_directory": "."})
+        if not content:
+            continue
+        if path.name == ".python-version":
+            value = content.strip().splitlines()[0] if content.strip() else ""
+            if value:
+                runtimes.append({"runtime": "python", "value": value, "source": relative})
+        elif path.name == ".nvmrc":
+            value = content.strip().splitlines()[0] if content.strip() else ""
+            if value:
+                runtimes.append({"runtime": "node", "value": value, "source": relative})
+        elif path.name == "Dockerfile":
+            for match in re.finditer(r"(?im)^FROM\s+([^\s]+)", content):
+                runtimes.append({"runtime": "container", "value": match.group(1), "source": relative})
+        elif path.name == "package.json":
+            try:
+                package = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                package = {}
+            if isinstance(package, dict):
+                declared_manager = package.get("packageManager")
+                local_manager = "npm"
+                if isinstance(declared_manager, str) and declared_manager:
+                    local_manager = declared_manager.split("@", 1)[0]
+                    package_managers.add(local_manager)
+                else:
+                    for lockfile_name, manager_name in lockfile_managers.items():
+                        if (path.parent / lockfile_name).is_file():
+                            local_manager = manager_name
+                            package_managers.add(local_manager)
+                            break
+                engines = package.get("engines", {})
+                if isinstance(engines, dict):
+                    for runtime in ("node", "npm", "pnpm"):
+                        if isinstance(engines.get(runtime), str):
+                            runtimes.append({"runtime": runtime, "value": engines[runtime], "source": relative})
+                section_scopes = {
+                    "dependencies": "runtime",
+                    "devDependencies": "development",
+                    "peerDependencies": "peer",
+                }
+                for section, scope in section_scopes.items():
+                    values = package.get(section, {})
+                    if isinstance(values, dict):
+                        for name, version in values.items():
+                            add_named_dependency(str(name), str(version), relative, scope)
+                scripts = package.get("scripts", {})
+                if isinstance(scripts, dict):
+                    for name in sorted(scripts):
+                        commands.append({"command": "{} run {}".format(local_manager, name), "source": relative, "working_directory": path.parent.relative_to(root).as_posix() or "."})
+        if path.name == "pyproject.toml":
+            parsed = {}
+            if tomllib is not None:
+                try:
+                    parsed = tomllib.loads(content)
+                except (ValueError, TypeError):
+                    parsed = {}
+            project = parsed.get("project", {}) if isinstance(parsed, dict) else {}
+            if isinstance(project, dict):
+                name = project.get("name")
+                if isinstance(name, str):
+                    project_identity = {"name": name, "source": relative}
+                    if name.lower() in KNOWN_FRAMEWORKS and (root / name).is_dir():
+                        primary_frameworks.add(name.lower())
+                python_value = project.get("requires-python")
+                if isinstance(python_value, str):
+                    runtimes.append({"runtime": "python", "value": python_value, "source": relative})
+                for dependency in project.get("dependencies", []):
+                    add_dependency(dependency, relative, "runtime")
+                optional = project.get("optional-dependencies", {})
+                if isinstance(optional, dict):
+                    for group_name, group in optional.items():
+                        if isinstance(group_name, str) and isinstance(group, list):
+                            for dependency in group:
+                                add_dependency(dependency, relative, "optional:{}".format(group_name))
+                entry_points = project.get("scripts", {})
+                if isinstance(entry_points, dict):
+                    for name in sorted(entry_points):
+                        commands.append({"command": name, "source": relative, "working_directory": path.parent.relative_to(root).as_posix() or "."})
+            else:
+                python_match = re.search(r"(?m)^requires-python\s*=\s*[\"']([^\"']+)", content)
+                if python_match:
+                    runtimes.append({"runtime": "python", "value": python_match.group(1), "source": relative})
+            poe = re.search(r"(?ms)^\[tool\.poe\.tasks\]\s*(.*?)(?=^\[|\Z)", content)
+            if poe:
+                for _name, command in re.findall(r"(?m)^([A-Za-z0-9_.-]+)\s*=\s*[\"']([^\"']+)[\"']", poe.group(1)):
+                    commands.append({"command": command, "source": relative, "working_directory": path.parent.relative_to(root).as_posix() or "."})
+        if path.name == "requirements.txt":
+            for line in content.splitlines():
+                value = line.strip()
+                if value and not value.startswith(("#", "-")):
+                    add_dependency(value.split(";", 1)[0], relative, "runtime")
+        if path.name == "Pipfile":
+            section = "runtime"
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped == "[dev-packages]":
+                    section = "development"
+                elif stripped == "[packages]":
+                    section = "runtime"
+                else:
+                    match = re.match(r"^([A-Za-z0-9_.-]+)\s*=\s*[\"']?([^\"']+)", stripped)
+                    if match:
+                        add_named_dependency(match.group(1), match.group(2), relative, section)
+        if path.name == "go.mod":
+            for name, version in re.findall(
+                r"(?m)^\s*(?:require\s+)?([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+)\s+(v[^\s]+)",
+                content,
+            ):
+                add_named_dependency(name, version, relative, "runtime")
+        if path.name == "Cargo.toml" and tomllib is not None:
+            try:
+                cargo = tomllib.loads(content)
+            except (ValueError, TypeError):
+                cargo = {}
+            if isinstance(cargo, dict):
+                for section_name, scope in (("dependencies", "runtime"), ("dev-dependencies", "development")):
+                    section = cargo.get(section_name, {})
+                    if isinstance(section, dict):
+                        for name, value in section.items():
+                            version = value.get("version", "unspecified") if isinstance(value, dict) else value
+                            add_named_dependency(name, version, relative, scope)
+        if path.name == "pom.xml":
+            for block in re.findall(r"(?s)<dependency>(.*?)</dependency>", content):
+                artifact = re.search(r"<artifactId>([^<]+)</artifactId>", block)
+                group = re.search(r"<groupId>([^<]+)</groupId>", block)
+                version = re.search(r"<version>([^<]+)</version>", block)
+                scope_match = re.search(r"<scope>([^<]+)</scope>", block)
+                if artifact:
+                    name = "{}:{}".format(group.group(1), artifact.group(1)) if group else artifact.group(1)
+                    scope = "development" if scope_match and scope_match.group(1) == "test" else "runtime"
+                    add_named_dependency(name, version.group(1) if version else "unspecified", relative, scope)
+        if path.name in {"build.gradle", "build.gradle.kts"}:
+            for configuration, name, version in re.findall(
+                r"(?m)^\s*(implementation|api|testImplementation)\s*\(?[\"']([^:\"']+:[^:\"']+):([^\"']+)[\"']",
+                content,
+            ):
+                scope = "development" if configuration == "testImplementation" else "runtime"
+                add_named_dependency(name, version, relative, scope)
+        if path.name == "Makefile":
+            for target in re.findall(r"(?m)^([A-Za-z0-9_.-]+):(?:\s|$)", content):
+                if not target.startswith("."):
+                    commands.append({"command": "make {}".format(target), "source": relative, "working_directory": path.parent.relative_to(root).as_posix() or "."})
+
+    specialties: Set[str] = set()
+    api_dependency_names = {
+        "express",
+        "fastify",
+        "@nestjs/core",
+        "fastapi",
+        "flask",
+        "django",
+        "github.com/gin-gonic/gin",
+        "org.springframework:spring-web",
+        "org.springframework:spring-webmvc",
+        "org.springframework:spring-webflux",
+    }
+    database_dependency_names = {
+        "sqlalchemy",
+        "sqlmodel",
+        "django",
+        "prisma",
+        "sequelize",
+        "typeorm",
+        "gorm.io/gorm",
+        "org.hibernate.orm:hibernate-core",
+        "org.hibernate:hibernate-core",
+    }
+    if stack_signals.get("backend") or runtime_dependency_names & api_dependency_names:
+        specialties.add("api")
+    if stack_signals.get("frontend"):
+        specialties.add("frontend")
+    if runtime_dependency_names & database_dependency_names:
+        specialties.add("database")
+    if runtime_dependency_names & {"openai", "anthropic", "langchain", "llama-index", "llamaindex", "chromadb", "qdrant-client"}:
+        specialties.add("ai")
+    return {
+        "runtime_declarations": sorted(runtimes, key=lambda item: (item["source"], item["runtime"], item["value"])),
+        "dependency_declarations": sorted(dependencies, key=lambda item: (item["source"], item["scope"], item["name"], item["version"])),
+        "environment_sources": sorted(environment_sources, key=lambda item: item["path"]),
+        "command_candidates": sorted(commands, key=lambda item: (item["source"], item["command"])),
+        "project_identity": project_identity,
+        "primary_frameworks": sorted(primary_frameworks),
+        "package_managers": sorted(package_managers),
+        "specialized_discovery": sorted(specialties),
+    }
+
+
 def _bounded_directory_entries(
     directory: Path, remaining: int
 ) -> Tuple[List[os.DirEntry], bool]:
@@ -461,6 +800,15 @@ def _bounded_directory_entries(
     except OSError:
         raise
     return sorted(entries, key=lambda entry: entry.name), truncated
+
+
+def _directory_priority(path: Path) -> Tuple[int, str]:
+    parts = {part.lower() for part in path.parts}
+    if parts & {"docs", "docs_src", "examples", "example", "samples"}:
+        return 3, path.as_posix()
+    if parts & {"tests", "test", "__tests__"}:
+        return 1, path.as_posix()
+    return 0, path.as_posix()
 
 
 def _collect_files(
@@ -547,7 +895,7 @@ def _collect_files(
             except OSError:
                 record_unverified(path, "metadata-unreadable")
                 continue
-        pending.extend(reversed(directories))
+        pending.extend(sorted(directories, key=_directory_priority, reverse=True))
     if pending:
         entries_truncated = True
         unverified_paths_truncated = True
@@ -747,7 +1095,8 @@ def scan_project(
     inventory: List[Dict[str, object]] = []
     scanned_contents: Dict[Path, str] = {}
     content_bytes_read = 0
-    for path in collection.files:
+    body_by_path: Dict[Path, _BodyResult] = {}
+    for path in sorted(collection.files, key=_read_priority):
         body = _read_bounded_body(
             resolved_root,
             path,
@@ -758,6 +1107,9 @@ def scan_project(
         content_bytes_read += body.bytes_read
         if body.content_scanned:
             scanned_contents[path] = body.content
+        body_by_path[path] = body
+    for path in collection.files:
+        body = body_by_path[path]
         relative_path = _relative_path(resolved_root, path)
         inventory_record = {
                 "path": relative_path,
@@ -790,14 +1142,18 @@ def scan_project(
         or content_bytes_truncated
         or any(item["content_status"] == "unverified" for item in inventory)
     )
+    stack_signals = detect_stack_signals(
+        resolved_root, collection.files, scanned_contents
+    )
     return {
         "root": str(resolved_root),
         "complete": complete,
         "files": inventory,
         "unverified": collection.unverified,
         "unverified_summary": collection.unverified_summary,
-        "stack_signals": detect_stack_signals(
-            resolved_root, collection.files, scanned_contents
+        "stack_signals": stack_signals,
+        "project_evidence": detect_project_evidence(
+            resolved_root, collection.files, scanned_contents, stack_signals
         ),
         "modules": detect_modules(
             resolved_root, collection.files, scanned_contents

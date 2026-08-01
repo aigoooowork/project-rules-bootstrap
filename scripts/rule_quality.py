@@ -84,6 +84,28 @@ COMMAND_PREFIXES = {
 }
 MAX_SOURCE_FILE_BYTES = 512 * 1024
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
+RULE_TYPE_PATTERN = re.compile(
+    r"^<!-- rule-type: (code-chain|api|database|frontend|ai|tooling|documentation|policy) -->$",
+    re.MULTILINE,
+)
+CODE_CHAIN_TYPES = {"code-chain", "api", "database", "frontend", "ai"}
+CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml", ".xml", ".gradle", ".kts"}
+
+
+def _anchor_kind(relative: str) -> str:
+    path = Path(relative)
+    parts = {part.lower() for part in path.parts}
+    if path.suffix.lower() == ".md" or parts & {"docs", "docs_src", "documentation"}:
+        return "documentation"
+    if (
+        path.suffix.lower() in CONFIG_SUFFIXES
+        or path.suffix.lower() == ".sh"
+        or "scripts" in parts
+        or ".github" in parts
+        or path.name in {"Makefile", "Dockerfile", "Pipfile"}
+    ):
+        return "tooling"
+    return "source"
 
 
 def _within_root(root: Path, relative: str) -> bool:
@@ -167,6 +189,8 @@ def _is_command(root: Path, value: str) -> bool:
 def evaluate_rule_quality(root: Path, document: str) -> Dict[str, object]:
     """Return deterministic grounding signals and actionable quality issues."""
     project_root = root.resolve(strict=False)
+    type_match = RULE_TYPE_PATTERN.search(document)
+    rule_type = type_match.group(1) if type_match else "code-chain"
     existing: Set[str] = set()
     missing: Set[str] = set()
     candidate_symbols: Set[str] = set()
@@ -203,18 +227,35 @@ def evaluate_rule_quality(root: Path, document: str) -> Dict[str, object]:
     )
 
     issues: List[str] = []
-    if len(existing) < 2:
+    minimum_paths = 1 if rule_type == "policy" else 2
+    if len(existing) < minimum_paths:
         issues.append("missing-existing-project-anchors")
-    if len(symbols) < 2:
-        issues.append("missing-code-symbol-anchors")
-    if chain_signals == 0:
-        issues.append("missing-complete-chain-signal")
-    if verification_commands == 0:
+    if rule_type in CODE_CHAIN_TYPES:
+        if len(symbols) < 2:
+            issues.append("missing-code-symbol-anchors")
+        if chain_signals == 0:
+            issues.append("missing-complete-chain-signal")
+    elif rule_type == "tooling":
+        if sum(_anchor_kind(path) == "tooling" for path in existing) < 2:
+            issues.append("rule-type-anchor-mismatch")
+    elif rule_type == "documentation":
+        anchor_kinds = [_anchor_kind(path) for path in existing]
+        if (
+            sum(kind in {"documentation", "tooling"} for kind in anchor_kinds) < 2
+            or "documentation" not in anchor_kinds
+        ):
+            issues.append("rule-type-anchor-mismatch")
+    elif rule_type == "policy" and not any(
+        _anchor_kind(path) in {"documentation", "tooling"} for path in existing
+    ):
+        issues.append("rule-type-anchor-mismatch")
+    if rule_type != "policy" and verification_commands == 0:
         issues.append("missing-verification-command")
     if missing:
         issues.append("invented-project-anchors")
 
     return {
+        "rule_type": rule_type,
         "issues": issues,
         "existing_path_anchors": len(existing),
         "existing_path_anchor_paths": sorted(existing),

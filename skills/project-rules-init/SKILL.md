@@ -27,38 +27,62 @@ Run the read-only scanner:
 python ../../scripts/scan_project.py <project-root>
 ```
 
+For important Python symbols, verify ownership before drafting:
+
+```text
+python ../../scripts/inspect_symbol.py <project-root> <symbol>
+```
+
 If a valid `.ai/rules-manifest.json` version 2 baseline exists, stop and use `project-rules-update`.
 
 ## Workflow
 
-1. Locate the repository root, existing AI instructions, real build/test
-   commands, major modules, and sensitive paths. Record sensitive paths as
-   existence-only; never read their values.
-2. Read candidate source bodies. For every major module, trace at least one
+1. Locate the repository root and inspect `project_evidence` for declared
+   runtime/dependency versions, environment/config sources, command candidates,
+   conditional specialty signals, and sensitive paths. Treat declarations as
+   repository facts, not proof of the external production environment. Record
+   sensitive paths as existence-only; never read their values.
+2. Read `primary-source`, `test`, and `config-tooling` candidates before
+   `docs-example` candidates. For every major module, trace at least one
    representative chain from its user, API, CLI, message, task, or library
    entry through validation, business logic, persistence/integration, returned
    state, and tests. Follow imports and callers beyond scanner hints.
-3. Compare at least two comparable implementations when declaring a repeated
+3. Distinguish every important symbol's definition, import, main use,
+   configuration source, and covering test. Use `inspect_symbol.py` for Python;
+   use language-aware search for other languages. Never describe an import or
+   use site as the definition site.
+4. Compare at least two comparable implementations when declaring a repeated
    convention. Capture concrete project structure, symbols, boundary behavior,
    data/error flow, shared consumers, and working verification commands.
-4. Draft only actionable recipes containing **Action**, **Scope**, **Project
+5. Classify evidence as a directly observed fact, a repeated convention, a
+   constraint candidate, an unknown, or a conflict. Current implementation does
+   not establish a permanent future constraint.
+6. If the scanner lists specialties, then read only the matching sections of
+   `../../references/specialized-discovery.md` and verify each signal in source.
+   Do not load this reference before scanning. Do not load every specialty by
+   default or force a specialty rule file.
+7. Draft only actionable recipes containing **Action**, **Scope**, **Project
    anchor**, and **Verification**. Exclude stack-only summaries, directory
    listings, slogans, proposed architecture, and rules unsupported by code.
-5. Group recipes by the repository's actual concerns. Generate only groups
+   Give each group the narrowest applicable `RULE_TYPE` evidence profile.
+8. Group recipes by the repository's actual concerns. Generate only groups
    with useful content; do not force a fixed category list. Always produce
    `.ai/rules/index.md` as the canonical entry to those groups.
-6. Resolve material uncertainty progressively. Ask one to three focused
-   questions at a time, normally no more than five to ten total. Exclude an
-   unresolved claim instead of publishing a guess.
-7. Treat every proposed `MUST`, `NEVER`, `必须`, or `禁止` instruction as a
-   separate strong-constraint decision. Show its exact action, scope, reason,
-   exception policy, project evidence, and verification, then obtain explicit
-   confirmation before including it.
-8. Preview the rule content and exact `create` / `manual-only` plan. An existing
+9. Resolve material uncertainty progressively. Every question must cite the
+   observed anchors, state what cannot be determined, explain which candidate
+   rule changes, and offer concrete choices with consequences. Ask one to three
+   focused questions at a time, normally no more than five to ten total.
+   Exclude an unresolved claim instead of publishing a guess.
+10. Treat every proposed prohibition, mandatory action, approval prerequisite,
+   or only-allowed path as a separate strong-constraint decision. Decide
+   semantically whether it limits future choices; do not rely on keyword
+   matching alone. Show its exact action, scope, reason, exception policy,
+   project evidence, and verification, then obtain explicit confirmation.
+11. Preview the rule content and exact `create` / `manual-only` plan. An existing
    unowned adapter file is `manual-only`; never overwrite it. Request one final
    write confirmation after all content and strong-constraint decisions are
    settled.
-9. After approval, render the dynamic canonical files, selected unique
+12. After approval, render the dynamic canonical files, selected unique
    adapters, and small v2 ownership manifest. Apply one preflighted write plan
    with the manifest last, then run `scripts/validate_outputs.py`.
 

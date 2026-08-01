@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts.scan_project import _git_command, scan_project
+from scripts.scan_project import _git_command, scan_project, select_rule_discovery_candidates
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -25,6 +25,224 @@ def create_symlink_or_skip(link: Path, target: Path) -> None:
 
 
 class ScanProjectTests(unittest.TestCase):
+    def test_scan_extracts_declared_versions_commands_environment_and_specialties(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text(
+                """[project]
+requires-python = ">=3.10"
+dependencies = ["fastapi==0.115.0", "sqlalchemy>=2", "openai==1.2.3"]
+
+[tool.poe.tasks]
+test = "pytest tests -q"
+""",
+                encoding="utf-8",
+            )
+            (root / ".python-version").write_text("3.12.4\n", encoding="utf-8")
+            (root / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
+            (root / ".env.example").write_text("SECRET_SENTINEL=x\n", encoding="utf-8")
+
+            result = scan_project(root, max_depth=4)
+            evidence = result["project_evidence"]
+
+            self.assertIn("api", evidence["specialized_discovery"])
+            self.assertIn("database", evidence["specialized_discovery"])
+            self.assertIn("ai", evidence["specialized_discovery"])
+            self.assertTrue(any(item["runtime"] == "python" for item in evidence["runtime_declarations"]))
+            self.assertTrue(any(item["command"] == "pytest tests -q" for item in evidence["command_candidates"]))
+            self.assertTrue(any(item["path"] == ".env.example" for item in evidence["environment_sources"]))
+            self.assertNotIn("SECRET_SENTINEL", json.dumps(result))
+
+    def test_scan_reads_primary_source_before_docs_examples_under_tight_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs_src").mkdir()
+            (root / "fastapi").mkdir()
+            (root / "tests").mkdir()
+            (root / "docs_src/example.py").write_text("EXAMPLE = 'x' * 400\n")
+            (root / "fastapi/routing.py").write_text("def route_owner(): return 1\n")
+            (root / "tests/test_routing.py").write_text("def test_route_owner(): pass\n")
+
+            result = scan_project(root, max_depth=4, max_content_bytes=80)
+            records = {item["path"]: item for item in result["files"]}
+
+            self.assertTrue(records["fastapi/routing.py"]["content_scanned"])
+            self.assertEqual(
+                "primary-source",
+                next(
+                    item["scan_priority"]
+                    for item in result["rule_discovery"]["candidates"]
+                    if item["path"] == "fastapi/routing.py"
+                ),
+            )
+            self.assertEqual(
+                "docs-example",
+                next(
+                    item["scan_priority"]
+                    for item in result["rule_discovery"]["candidates"]
+                    if item["path"] == "docs_src/example.py"
+                ),
+            )
+
+    def test_file_budget_traversal_reaches_primary_source_before_docs_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs/deep").mkdir(parents=True)
+            (root / "fastapi").mkdir()
+            for index in range(8):
+                (root / "docs/deep/example_{}.py".format(index)).write_text("VALUE = 1\n")
+            (root / "fastapi/routing.py").write_text("def route_owner(): return 1\n")
+
+            result = scan_project(root, max_depth=5, max_files=2)
+            paths = {item["path"] for item in result["files"]}
+
+            self.assertIn("fastapi/routing.py", paths)
+
+    def test_project_identity_separates_primary_framework_from_test_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "fastapi").mkdir()
+            (root / "fastapi/__init__.py").write_text("__version__ = 'dev'\n")
+            (root / "pyproject.toml").write_text(
+                """[project]
+name = "fastapi"
+requires-python = ">=3.10"
+dependencies = ["starlette>=0.46.0"]
+
+[dependency-groups]
+tests = ["flask>=3.0.0"]
+""",
+                encoding="utf-8",
+            )
+
+            result = scan_project(root, max_depth=4)
+
+            self.assertEqual("fastapi", result["project_evidence"]["project_identity"]["name"])
+            self.assertEqual(["fastapi"], result["project_evidence"]["primary_frameworks"])
+            self.assertNotIn("flask", result["stack_signals"]["backend"])
+
+    def test_candidate_fill_preserves_core_file_and_parent_diversity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [root / "fastapi/routing.py", root / "fastapi/applications.py"]
+            paths.extend(root / "fastapi/middleware/m{}.py".format(index) for index in range(8))
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("def value(): return 1\n")
+
+            result = select_rule_discovery_candidates(
+                root, paths, max_candidates_per_module=5
+            )
+            selected = [item["path"] for item in result["candidates"]]
+
+            self.assertIn("fastapi/routing.py", selected)
+            self.assertLessEqual(
+                sum(path.startswith("fastapi/middleware/") for path in selected), 2
+            )
+
+    def test_docs_example_cannot_displace_primary_source_in_same_module(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [root / "module/src/core.py", root / "module/docs/routes.py"]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("def value(): return 1\n")
+            result = select_rule_discovery_candidates(root, paths, max_candidates_per_module=1)
+            self.assertEqual("module/src/core.py", result["candidates"][0]["path"])
+
+    def test_dev_only_ai_dependency_does_not_enable_ai_specialty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "packageManager": "pnpm@10.0.0",
+                        "dependencies": {"express": "5.0.0"},
+                        "devDependencies": {"openai": "2.0.0"},
+                        "scripts": {"test": "vitest"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = scan_project(root)
+            evidence = result["project_evidence"]
+            self.assertNotIn("ai", evidence["specialized_discovery"])
+            self.assertIn("api", evidence["specialized_discovery"])
+            self.assertTrue(any(item["scope"] == "development" for item in evidence["dependency_declarations"] if item["name"] == "openai"))
+            self.assertTrue(any(item["command"] == "pnpm run test" for item in evidence["command_candidates"]))
+
+    def test_dev_only_node_framework_does_not_enable_api_specialty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package.json").write_text(
+                json.dumps({"devDependencies": {"express": "5.0.0"}}),
+                encoding="utf-8",
+            )
+            result = scan_project(root)
+            self.assertNotIn("api", result["project_evidence"]["specialized_discovery"])
+
+    def test_python_test_extra_does_not_enable_ai_specialty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname="demo"\n[project.optional-dependencies]\ntest=["openai>=1"]\n',
+                encoding="utf-8",
+            )
+            result = scan_project(root)
+            evidence = result["project_evidence"]
+            self.assertNotIn("ai", evidence["specialized_discovery"])
+            self.assertTrue(any(item["scope"] == "optional:test" for item in evidence["dependency_declarations"]))
+
+    def test_go_and_java_runtime_dependencies_route_specialties(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "go.mod").write_text(
+                "module example\nrequire github.com/gin-gonic/gin v1.10.0\n",
+                encoding="utf-8",
+            )
+            (root / "pom.xml").write_text(
+                """<project><dependencies>
+<dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>
+<dependency><groupId>org.hibernate.orm</groupId><artifactId>hibernate-core</artifactId></dependency>
+</dependencies></project>""",
+                encoding="utf-8",
+            )
+            result = scan_project(root)
+            specialties = result["project_evidence"]["specialized_discovery"]
+            self.assertIn("api", specialties)
+            self.assertIn("database", specialties)
+
+    def test_monorepo_commands_use_each_package_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for package, manager in (("a", "pnpm@10"), ("b", "yarn@4")):
+                package_root = root / "apps" / package
+                package_root.mkdir(parents=True)
+                (package_root / "package.json").write_text(
+                    json.dumps({"packageManager": manager, "scripts": {"test": "vitest"}}),
+                    encoding="utf-8",
+                )
+            result = scan_project(root)
+            commands = {
+                (item["source"], item["command"])
+                for item in result["project_evidence"]["command_candidates"]
+            }
+            self.assertIn(("apps/a/package.json", "pnpm run test"), commands)
+            self.assertIn(("apps/b/package.json", "yarn run test"), commands)
+
+    def test_extracts_common_non_python_dependency_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "requirements.txt").write_text("sqlalchemy==2.0.0\n")
+            (root / "go.mod").write_text("module example\nrequire github.com/gin-gonic/gin v1.10.0\n")
+            (root / "Cargo.toml").write_text(
+                '[package]\nname="demo"\nversion="0.1.0"\n[dependencies]\nqdrant-client="1"\n'
+            )
+            result = scan_project(root)
+            names = {item["name"] for item in result["project_evidence"]["dependency_declarations"]}
+            self.assertTrue({"sqlalchemy", "github.com/gin-gonic/gin", "qdrant-client"}.issubset(names))
+            self.assertIn("database", result["project_evidence"]["specialized_discovery"])
+            self.assertIn("ai", result["project_evidence"]["specialized_discovery"])
     def test_depth_limit_reports_omitted_file_without_reading_its_body(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

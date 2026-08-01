@@ -78,6 +78,7 @@ Run the deterministic scanner and output validator from the Skill root:
 
 ```text
 python scripts/scan_project.py <project-root>
+python scripts/inspect_symbol.py <project-root> <python-symbol>
 python scripts/validate_outputs.py <project-root>
 ```
 
@@ -87,9 +88,11 @@ Run tests:
 python -m unittest discover -s tests -v
 ```
 
-Validation includes a grounding gate for real file anchors, code symbols,
-explicit multi-link chains, and command-shaped verification candidates. The
-Skill still verifies selected commands against project configuration. See the
+Validation uses evidence profiles: code/API/database/frontend/AI groups require
+real paths, source-backed symbols, explicit multi-link chains, and commands;
+tooling/documentation groups require real configuration, script, or document
+anchors and commands without inventing a code chain. The Skill still verifies
+selected commands against project configuration. See the
 [five-stack benchmark](benchmarks/README.md) for the pinned comparison against
 two other rule generators.
 

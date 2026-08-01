@@ -7,6 +7,16 @@ from scripts.rule_contract import LANGUAGE_HEADINGS, parse_confirmed_constraint_
 
 
 DOMAIN_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+RULE_TYPES = {
+    "code-chain",
+    "api",
+    "database",
+    "frontend",
+    "ai",
+    "tooling",
+    "documentation",
+    "policy",
+}
 REQUIRED_VALUES = (
     "PROJECT_NAME",
     "SCOPE",
@@ -51,6 +61,9 @@ def render_rule_document(
     if headings is None:
         raise ValueError("language must be en or zh-CN")
     content = {field: _required_text(values, field) for field in REQUIRED_VALUES}
+    rule_type = values.get("RULE_TYPE", "code-chain")
+    if not isinstance(rule_type, str) or rule_type not in RULE_TYPES:
+        raise ValueError("RULE_TYPE must be a supported rule evidence profile")
     constraints = values.get("CONFIRMED_CONSTRAINTS", "")
     if not isinstance(constraints, str):
         raise ValueError("CONFIRMED_CONSTRAINTS must be text")
@@ -70,7 +83,10 @@ def render_rule_document(
         )
     )
     title = safe_domain.replace("-", " ")
-    blocks = ["# {} — {}".format(content["PROJECT_NAME"], title)]
+    blocks = [
+        "# {} — {}".format(content["PROJECT_NAME"], title),
+        "<!-- rule-type: {} -->".format(rule_type),
+    ]
     blocks.extend("## {}\n{}".format(heading, body) for heading, body in sections)
     return "\n\n".join(blocks) + "\n"
 

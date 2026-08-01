@@ -136,6 +136,27 @@ class ValidateOutputTreeTests(unittest.TestCase):
         self.assertIn("unexpected-analysis", codes)
         self.assertIn("unconfirmed-strong-instruction", codes)
 
+    def test_descriptive_required_only_and_always_words_are_not_directives(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_tree(root)
+            path = root / ".ai/rules/backend.md"
+            text = path.read_text(encoding="utf-8").replace(
+                "## Confirmed facts\n",
+                "## Confirmed facts\n- The field is required.\n"
+                "- This is a read-only endpoint.\n"
+                "- The always-on service is external.\n",
+            )
+            path.write_text(text, encoding="utf-8")
+            manifest_path = root / ".ai/rules-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"][1]["sha256"] = digest(text)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            issues = self.module().validate_output_tree(root)
+
+        self.assertNotIn("unconfirmed-strong-instruction", {issue.code for issue in issues})
+
     def test_constraint_marker_must_match_confirmation_text_hash(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

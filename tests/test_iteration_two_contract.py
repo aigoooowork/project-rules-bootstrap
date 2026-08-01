@@ -12,6 +12,7 @@ def values(constraints: str = "") -> dict:
         "EXECUTION_RULES": "- Action: extend `deploy/release.py` and copy its existing release path.",
         "VERIFICATION": "- Run `python -m unittest tests.test_release`.",
         "RELATED_RULES": "- [Testing](testing.md)",
+        "RULE_TYPE": "code-chain",
     }
 
 
@@ -56,10 +57,44 @@ class DynamicRuleRenderingTests(unittest.TestCase):
         self.assertEqual(1, rendered.count("<!-- rule-id: deployment.approval -->"))
         self.assertIn("生产发布必须", rendered)
 
+    def test_accepts_extended_strong_constraint_language(self) -> None:
+        for text in (
+            "生产发布不得跳过审批。",
+            "Production releases SHALL use the reviewed path.",
+            "Only approved migrations are allowed.",
+            "任何情况下都不能读取生产密钥。",
+        ):
+            with self.subTest(text=text):
+                constraint = (
+                    "<!-- rule-id: deployment.extended -->\n- {}".format(text)
+                )
+                rendered = self.render(
+                    "deployment", "zh-CN" if "。" in text else "en", values(constraint)
+                )
+                self.assertIn(text, rendered)
+
+        semantic = (
+            "<!-- rule-id: deployment.semantic -->\n"
+            "- Obtain security approval before deployment."
+        )
+        self.assertIn(
+            "Obtain security approval",
+            self.render("deployment", "en", values(semantic)),
+        )
+
+    def test_renders_explicit_rule_type_and_rejects_unknown_type(self) -> None:
+        data = values()
+        data["RULE_TYPE"] = "tooling"
+        rendered = self.render("tooling", "en", data)
+        self.assertIn("<!-- rule-type: tooling -->", rendered)
+
+        data["RULE_TYPE"] = "generic"
+        with self.assertRaisesRegex(ValueError, "RULE_TYPE"):
+            self.render("tooling", "en", data)
+
     def test_rejects_unmarked_or_non_strong_confirmed_constraint_items(self) -> None:
         for constraints in (
             "- Code MUST pass validation.",
-            "<!-- rule-id: deployment.approval -->\n- Prefer validation.",
             "<!-- rule-id: deployment.approval -->\n- Code MUST pass.\n- Code NEVER skips.",
             (
                 "<!-- rule-id: deployment.approval -->\n- Code MUST pass.\n"

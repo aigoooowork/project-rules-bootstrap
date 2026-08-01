@@ -29,3 +29,10 @@
 
 Formatting-only changes do not create semantic delta entries. First imports
 from human-authored AI rules are evidence candidates, not trusted constraints.
+
+The user may also provide recurring AI mistakes, repeated review feedback, new
+team decisions, incident conclusions, or explicit retirement notes. Treat them
+as evidence candidates: retain only items that are long-lived, repeated,
+specific, actionable, and relevant to future changes. Resolve conflicts with
+current code explicitly and confirm every resulting strong constraint. This is
+rules maintenance, not review or incident workflow management.

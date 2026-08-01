@@ -6,6 +6,182 @@ from scripts.rule_quality import evaluate_rule_quality
 
 
 class RuleQualityTests(unittest.TestCase):
+    def test_tooling_profile_requires_real_files_and_command_not_code_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+            (root / "scripts/test.sh").write_text("#!/bin/sh\npytest tests\n")
+            document = """# Example — tooling
+
+<!-- rule-type: tooling -->
+
+## Scope
+Repository checks configured in `pyproject.toml` and `scripts/test.sh`.
+
+## Confirmed facts
+- `scripts/test.sh` is the full test entry and `pyproject.toml` configures pytest.
+
+## Execution rules
+- Reuse the declared repository checks for tooling changes.
+
+## Verification
+- Run `bash scripts/test.sh`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertEqual("tooling", result["rule_type"])
+            self.assertEqual([], result["issues"])
+            self.assertEqual(0, result["symbol_anchors"])
+            self.assertEqual(0, result["chain_signals"])
+
+    def test_code_chain_profile_still_requires_symbols_and_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "src/a.py").write_text("VALUE = 1\n")
+            (root / "src/b.py").write_text("VALUE = 2\n")
+            document = """# Example — code
+
+<!-- rule-type: code-chain -->
+
+## Scope
+`src/a.py` and `src/b.py`.
+
+## Confirmed facts
+Two source files exist.
+
+## Execution rules
+Change the owning implementation.
+
+## Verification
+Run `python -m unittest tests`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertIn("missing-code-symbol-anchors", result["issues"])
+            self.assertIn("missing-complete-chain-signal", result["issues"])
+
+    def test_tooling_profile_cannot_hide_code_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "src/a.py").write_text("def first(): return 1\n")
+            (root / "src/b.py").write_text("def second(): return 2\n")
+            document = """# Example — mislabeled
+
+<!-- rule-type: tooling -->
+
+## Scope
+`src/a.py` and `src/b.py`.
+
+## Confirmed facts
+The files implement request behavior.
+
+## Execution rules
+Change request behavior in those files.
+
+## Verification
+Run `python -m unittest tests`.
+
+## Related rules
+None.
+"""
+
+            result = evaluate_rule_quality(root, document)
+
+            self.assertIn("rule-type-anchor-mismatch", result["issues"])
+
+    def test_tooling_profile_requires_two_tooling_anchors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "src/a.py").write_text("def run(): return 1\n")
+            (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+            document = """# Example — mislabeled tooling
+
+<!-- rule-type: tooling -->
+
+## Scope
+`pyproject.toml` and `src/a.py`.
+
+## Confirmed facts
+One tooling file and one business source file exist.
+
+## Execution rules
+Change the implementation.
+
+## Verification
+Run `python -m unittest tests`.
+
+## Related rules
+None.
+"""
+            result = evaluate_rule_quality(root, document)
+            self.assertIn("rule-type-anchor-mismatch", result["issues"])
+
+    def test_policy_profile_cannot_hide_source_only_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "src/a.py").write_text("def run(): return 1\n")
+            document = """# Example — mislabeled policy
+
+<!-- rule-type: policy -->
+
+## Scope
+`src/a.py`.
+
+## Confirmed facts
+The source file implements request behavior.
+
+## Execution rules
+Change the implementation.
+
+## Verification
+Inspect the change.
+
+## Related rules
+None.
+"""
+            result = evaluate_rule_quality(root, document)
+            self.assertIn("rule-type-anchor-mismatch", result["issues"])
+
+    def test_documentation_profile_requires_a_document_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "pyproject.toml").write_text("[tool.docs]\n")
+            (root / "scripts/docs.sh").write_text("echo docs\n")
+            document = """# Example — docs
+
+<!-- rule-type: documentation -->
+
+## Scope
+`pyproject.toml` and `scripts/docs.sh`.
+
+## Confirmed facts
+The build inputs exist.
+
+## Execution rules
+Update documentation.
+
+## Verification
+Run `bash scripts/docs.sh`.
+
+## Related rules
+None.
+"""
+            result = evaluate_rule_quality(root, document)
+            self.assertIn("rule-type-anchor-mismatch", result["issues"])
     def test_accepts_project_anchored_complete_chain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

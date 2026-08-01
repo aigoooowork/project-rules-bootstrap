@@ -58,11 +58,28 @@ Each group uses one output language and these sections:
 Chinese headings are `适用范围`, `已确认事实`, `已确认的强约束`, `执行规则`,
 `验证方式`, and `相关规则`.
 
+Place one evidence-profile marker immediately after the title:
+
+```text
+<!-- rule-type: code-chain -->
+```
+
+Choose the narrowest profile supported by the group:
+
+| `RULE_TYPE` | Required grounding |
+| --- | --- |
+| `code-chain`, `api`, `database`, `frontend`, `ai` | At least two real paths, two real symbols, one multi-link chain, and a real verification command. |
+| `tooling`, `documentation` | At least two real configuration/script/document paths and a real verification command; code symbols are optional. |
+| `policy` | At least one real configuration, tooling, or documentation anchor plus explicit confirmation where the content is a strong constraint; a code chain is not required. |
+
+Do not label code behavior as `tooling` or `policy` to bypass chain evidence.
+
 ## Strong constraints
 
-Every `MUST`, `NEVER`, `必须`, or `禁止` instruction appears only under the
-confirmed-constraints section. Its marker occupies one line and is followed by
-one list item. The v2 manifest stores a unique confirmation record containing
+Every prohibition, mandatory action, approval prerequisite, or only-allowed
+path appears only under the confirmed-constraints section, regardless of its
+wording. Its marker occupies one line and is followed by one list item. The v2
+manifest stores a unique confirmation record containing
 the rule ID, scope, normalized text SHA-256, reason, exception policy,
 verification, and confirmation time. Status text or repository absence is not
 confirmation.

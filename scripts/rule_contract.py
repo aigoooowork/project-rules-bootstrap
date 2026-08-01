@@ -27,10 +27,27 @@ SECTION_KEY_BY_HEADING = {
     for mapping in LANGUAGE_HEADINGS.values()
     for key, heading in mapping.items()
 }
-MANDATORY_DIRECTIVE_TOKENS = ("MUST", "NEVER", "必须", "禁止")
+MANDATORY_DIRECTIVE_TOKENS = (
+    "MUST",
+    "NEVER",
+    "SHALL",
+    "REQUIRED",
+    "DO NOT",
+    "ONLY",
+    "ALWAYS",
+    "必须",
+    "禁止",
+    "不得",
+    "严禁",
+    "不允许",
+    "只能",
+    "仅允许",
+    "务必",
+    "不能",
+)
 STRONG_CONSTRAINT_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_])(?:MUST|NEVER)(?![A-Za-z0-9_])|必须|禁止",
-    re.IGNORECASE,
+    r"(?<![A-Za-z0-9_])(?:MUST|NEVER|SHALL|DO\s+NOT)"
+    r"(?![A-Za-z0-9_])|必须|禁止|不得|严禁|不允许|只能|仅允许|务必|不能",
 )
 CONSTRAINT_MARKER_PATTERN = re.compile(
     r"^<!-- rule-id: ([a-z0-9][a-z0-9._-]*) -->$"
@@ -55,8 +72,8 @@ def parse_confirmed_constraint_block(value: str) -> List[Tuple[str, str]]:
         if marker is None or not body.startswith("- "):
             raise ValueError("confirmed constraint requires one marker and list item")
         text = body[2:].strip()
-        if not text or STRONG_CONSTRAINT_PATTERN.search(text) is None:
-            raise ValueError("confirmed constraint item must contain a strong directive")
+        if not text:
+            raise ValueError("confirmed constraint item must be non-empty")
         rule_id = marker.group(1)
         if rule_id in seen:
             raise ValueError("confirmed constraint rule IDs must be unique")

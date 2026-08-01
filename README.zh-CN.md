@@ -16,11 +16,13 @@ Project Rules Bootstrap 用于从现有仓库的真实代码中生成可执行�
 
 1. 只读扫描仓库，不执行目标项目代码；
 2. 为每个主要模块追踪有代表性的完整代码链；
-3. 将稳定证据整理为包含 Action、Scope、Project anchor、Verification 的规则；
-4. 只对会影响结果的模糊点和冲突渐进式提问；
-5. 每条新增或发生语义变化的强约束单独确认；
-6. 展示完整规则和准确文件计划，再进行一次最终写入确认；
-7. 只写入已授权路径，最后安装精简 Manifest，并校验全部输出。
+3. 区分符号定义、导入、使用、配置来源和对应测试；
+4. 从声明文件提取运行版本、命令和条件式 API/数据库/前端/AI 发现信号；
+5. 将稳定证据整理为包含 Action、Scope、Project anchor、Verification 的规则；
+6. 只对会影响结果的模糊点和冲突渐进式提问；
+7. 每条新增或发生语义变化的强约束单独确认；
+8. 展示完整规则和准确文件计划，再进行一次最终写入确认；
+9. 只写入已授权路径，最后安装精简 Manifest，并校验全部输出。
 
 敏感文件只记录“存在”，不读取内容。路径穿越、敏感输出路径、符号链接、所有权
 哈希不一致和覆盖未托管文件都会被拒绝。已有但不属于本插件的助手规则文件保持
@@ -72,6 +74,7 @@ v2 Manifest 仅保存项目/扫描来源、托管文件路径与哈希，以及�
 
 ```text
 python scripts/scan_project.py <project-root>
+python scripts/inspect_symbol.py <project-root> <python-symbol>
 python scripts/validate_outputs.py <project-root>
 ```
 
@@ -81,8 +84,9 @@ python scripts/validate_outputs.py <project-root>
 python -m unittest discover -s tests -v
 ```
 
-输出校验包含真实文件锚点、源码中可核验的代码符号、显式多段调用链和命令形式
-验证候选的质量门禁；Skill 仍需对照项目配置核验所选命令。固定版本的五技术栈
+输出校验按规则类型设置门禁：代码/API/数据库/前端/AI 规则检查真实路径、源码
+符号、多段调用链和命令；工具链与文档规则检查真实配置、脚本、文档和命令，不再
+强行要求业务代码链。Skill 仍需对照项目配置核验所选命令。固定版本的五技术栈
 对比结果见 [benchmark](benchmarks/README.md)。
 
 扫描器对目录、文件数量、内容字节、Git 记录和子进程时间设置了上限。未读取、

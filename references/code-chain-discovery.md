@@ -37,6 +37,23 @@ shared utilities when they participate in the chain.
 Use `scripts/scan_project.py` to obtain `rule_discovery.candidates`. It provides
 module, language, and role hints; it does not claim a complete call graph.
 
+Read candidates by `scan_priority`: `primary-source`, `test`,
+`config-tooling`, then `docs-example`. Examples can clarify public usage but do
+not override the owning implementation. Use `project_evidence` for repository
+runtime/dependency declarations, config sources, command candidates, and
+conditional specialty routing. These are declared facts, not proof of the
+external production environment.
+
+For important Python symbols run
+`python scripts/inspect_symbol.py <project-root> <symbol>` and report definition,
+import, and use locations separately. For other languages use language-aware
+search with the same distinction. A file that imports a symbol does not own its
+definition.
+
+When `project_evidence.specialized_discovery` is non-empty, read
+`specialized-discovery.md` only for the listed specialties and verify each
+dependency/path signal against source before drafting.
+
 1. Give every major module a fair share of the content budget.
 2. Cover different roles before reading more files of one role.
 3. Read at least two comparable implementations before declaring a repeated
